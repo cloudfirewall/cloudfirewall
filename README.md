@@ -129,11 +129,14 @@ For containerized agent validation without touching the host firewall:
 ```bash
 make test-e2e
 make test-install-agent
+make test-e2e-install
 ```
 
 The Docker-based e2e stack runs the API, generates a one-time enrollment token, starts an agent container with `CAP_NET_ADMIN`, applies nftables inside the container namespace, and verifies the agent shows as online through the API. The scaffold lives in `tests/e2e/`.
 
 `make test-install-agent` separately validates the one-line installer in a disposable Docker container by packaging a local release archive, running the real install script, and checking the installed binary, environment file, and systemd unit output.
+
+`make test-e2e-install` combines both layers: it packages a local release archive, installs the agent with the real installer inside a Docker container, starts the installed binary, and then runs the full API enrollment plus traffic-probe flow. The scaffold lives in `tests/e2e-install/`.
 
 ## App entrypoints
 
