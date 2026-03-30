@@ -17,6 +17,7 @@ import (
 func main() {
 	addr := flag.String("addr", ":8080", "listen address")
 	configPath := flag.String("config", "apps/engine/testdata/compiled/public-web-server.nft.golden", "path to nftables config file")
+	dbPath := flag.String("db-path", envOrDefault("CLOUDFIREWALL_API_DB_PATH", ""), "path to the API persistence database")
 	adminUsername := flag.String("admin-username", envOrDefault("CLOUDFIREWALL_ADMIN_USERNAME", "admin"), "admin username for frontend login")
 	adminPassword := flag.String("admin-password", envOrDefault("CLOUDFIREWALL_ADMIN_PASSWORD", "admin"), "admin password for frontend login")
 	apiKey := flag.String("api-key", envOrDefault("CLOUDFIREWALL_API_KEY", "dev-api-key"), "API key for programmatic API access")
@@ -30,17 +31,26 @@ func main() {
 		log.Fatal(err)
 	}
 
-	store := service.NewStore(
+	store, err := service.NewStore(
 		service.SecurityConfig{
 			AdminUsername: *adminUsername,
 			AdminPassword: *adminPassword,
 			APIKey:        *apiKey,
 		},
 		config,
+		*dbPath,
 		*heartbeatTimeout,
 		*heartbeatInterval,
 		*configPollInterval,
 	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			log.Printf("close store: %v", err)
+		}
+	}()
 
 	log.Printf("cloudfirewall api listening on %s", *addr)
 	log.Fatal(http.ListenAndServe(*addr, httpapi.NewServer(store)))

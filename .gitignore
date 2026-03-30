@@ -4,3 +4,4 @@ apps/frontend/node_modules/
 apps/frontend/dist/
 apps/frontend/tsconfig.tsbuildinfo
 tests/e2e/.tmp/
+var/

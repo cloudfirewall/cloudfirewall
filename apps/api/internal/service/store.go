@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cloudfirewall/cloudfirewall/apps/api/types"
+	bolt "go.etcd.io/bbolt"
 )
 
 var (
@@ -59,6 +60,7 @@ type EnrollmentTokenRecord struct {
 
 type Store struct {
 	mu                 sync.RWMutex
+	db                 *bolt.DB
 	enrollmentTokens   map[string]*EnrollmentTokenRecord
 	agents             map[string]*AgentRecord
 	agentIDsByToken    map[string]string
@@ -70,8 +72,14 @@ type Store struct {
 	configPollInterval time.Duration
 }
 
-func NewStore(security SecurityConfig, config FirewallConfig, heartbeatTimeout, heartbeatInterval, configPollInterval time.Duration) *Store {
-	return &Store{
+func NewStore(security SecurityConfig, config FirewallConfig, dbPath string, heartbeatTimeout, heartbeatInterval, configPollInterval time.Duration) (*Store, error) {
+	db, err := openDB(dbPath)
+	if err != nil {
+		return nil, err
+	}
+
+	store := &Store{
+		db:                 db,
 		enrollmentTokens:   make(map[string]*EnrollmentTokenRecord),
 		agents:             make(map[string]*AgentRecord),
 		agentIDsByToken:    make(map[string]string),
@@ -82,6 +90,20 @@ func NewStore(security SecurityConfig, config FirewallConfig, heartbeatTimeout, 
 		heartbeatInterval:  heartbeatInterval,
 		configPollInterval: configPollInterval,
 	}
+
+	if err := store.loadPersistedState(config); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+
+	return store, nil
+}
+
+func (s *Store) Close() error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	return s.db.Close()
 }
 
 func (s *Store) CreateEnrollmentToken(req types.CreateEnrollmentTokenRequest) (types.CreateEnrollmentTokenResponse, error) {
@@ -103,6 +125,9 @@ func (s *Store) CreateEnrollmentToken(req types.CreateEnrollmentTokenRequest) (t
 		ExpiresAt: now.Add(ttl),
 	}
 	s.enrollmentTokens[record.ID] = record
+	if err := s.saveEnrollmentToken(record); err != nil {
+		return types.CreateEnrollmentTokenResponse{}, err
+	}
 
 	token, err := s.signEnrollmentToken(EnrollmentTokenClaims{
 		ID:  record.ID,
@@ -148,6 +173,9 @@ func (s *Store) Enroll(req types.EnrollAgentRequest) (types.EnrollAgentResponse,
 		return types.EnrollAgentResponse{}, ErrInvalidEnrollmentToken
 	}
 	tokenRecord.UsedAt = now
+	if err := s.saveEnrollmentToken(tokenRecord); err != nil {
+		return types.EnrollAgentResponse{}, err
+	}
 
 	agentID := "agt-" + randomHex(8)
 	authToken := "cfw_" + randomHex(24)
@@ -170,6 +198,9 @@ func (s *Store) Enroll(req types.EnrollAgentRequest) (types.EnrollAgentResponse,
 
 	s.agents[agentID] = agentRecord
 	s.agentIDsByToken[authToken] = agentID
+	if err := s.saveAgent(agentRecord); err != nil {
+		return types.EnrollAgentResponse{}, err
+	}
 
 	return types.EnrollAgentResponse{
 		AgentID:                   agentID,
@@ -197,6 +228,9 @@ func (s *Store) Heartbeat(authToken string, req types.AgentHeartbeatRequest) (ty
 		record.AgentVersion = version
 	}
 	record.FirewallVersion = strings.TrimSpace(req.FirewallVersion)
+	if err := s.saveAgent(record); err != nil {
+		return types.AgentHeartbeatResponse{}, err
+	}
 
 	return types.AgentHeartbeatResponse{
 		ReceivedAt: now.Format(time.RFC3339),
@@ -239,6 +273,9 @@ func (s *Store) UpdateFirewallConfig(req types.UpdateFirewallConfigRequest) (typ
 		Version:        version,
 		NFTablesConfig: req.NFTablesConfig,
 		UpdatedAt:      now,
+	}
+	if err := s.saveFirewallConfig(s.firewallConfig); err != nil {
+		return types.UpdateFirewallConfigResponse{}, err
 	}
 
 	return types.UpdateFirewallConfigResponse{

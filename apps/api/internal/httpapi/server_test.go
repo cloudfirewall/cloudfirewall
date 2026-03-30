@@ -14,7 +14,7 @@ import (
 )
 
 func TestEnrollHeartbeatListAndConfig(t *testing.T) {
-	store := service.NewStore(
+	store := newTestStore(t,
 		service.SecurityConfig{
 			AdminUsername: "admin",
 			AdminPassword: "secret",
@@ -25,9 +25,6 @@ func TestEnrollHeartbeatListAndConfig(t *testing.T) {
 			NFTablesConfig: "table inet cloudfirewall {}",
 			UpdatedAt:      time.Unix(1700000000, 0).UTC(),
 		},
-		30*time.Second,
-		10*time.Second,
-		15*time.Second,
 	)
 	server := httpapi.NewServer(store)
 
@@ -76,16 +73,13 @@ func TestEnrollHeartbeatListAndConfig(t *testing.T) {
 }
 
 func TestSwaggerAndOpenAPIEndpoints(t *testing.T) {
-	store := service.NewStore(
+	store := newTestStore(t,
 		service.SecurityConfig{
 			AdminUsername: "admin",
 			AdminPassword: "secret",
 			APIKey:        "dev-api-key",
 		},
 		service.FirewallConfig{},
-		30*time.Second,
-		10*time.Second,
-		15*time.Second,
 	)
 	server := httpapi.NewServer(store)
 
@@ -125,16 +119,13 @@ func TestSwaggerAndOpenAPIEndpoints(t *testing.T) {
 }
 
 func TestListAgentsAcceptsAPIKey(t *testing.T) {
-	store := service.NewStore(
+	store := newTestStore(t,
 		service.SecurityConfig{
 			AdminUsername: "admin",
 			AdminPassword: "secret",
 			APIKey:        "dev-api-key",
 		},
 		service.FirewallConfig{},
-		30*time.Second,
-		10*time.Second,
-		15*time.Second,
 	)
 	server := httpapi.NewServer(store)
 
@@ -142,7 +133,7 @@ func TestListAgentsAcceptsAPIKey(t *testing.T) {
 }
 
 func TestUpdateFirewallConfig(t *testing.T) {
-	store := service.NewStore(
+	store := newTestStore(t,
 		service.SecurityConfig{
 			AdminUsername: "admin",
 			AdminPassword: "secret",
@@ -153,9 +144,6 @@ func TestUpdateFirewallConfig(t *testing.T) {
 			NFTablesConfig: "table inet cloudfirewall {}",
 			UpdatedAt:      time.Unix(1700000000, 0).UTC(),
 		},
-		30*time.Second,
-		10*time.Second,
-		15*time.Second,
 	)
 	server := httpapi.NewServer(store)
 
@@ -182,16 +170,13 @@ func TestUpdateFirewallConfig(t *testing.T) {
 }
 
 func TestEnrollmentTokenIsOneTimeUse(t *testing.T) {
-	store := service.NewStore(
+	store := newTestStore(t,
 		service.SecurityConfig{
 			AdminUsername: "admin",
 			AdminPassword: "secret",
 			APIKey:        "dev-api-key",
 		},
 		service.FirewallConfig{},
-		30*time.Second,
-		10*time.Second,
-		15*time.Second,
 	)
 	server := httpapi.NewServer(store)
 
@@ -210,6 +195,88 @@ func TestEnrollmentTokenIsOneTimeUse(t *testing.T) {
 		Hostname:        "edge-02.local",
 		AgentVersion:    "1.0.0",
 	}, http.StatusUnauthorized)
+}
+
+func TestAgentStatePersistsAcrossStoreRestart(t *testing.T) {
+	dbPath := t.TempDir() + "/api.db"
+	security := service.SecurityConfig{
+		AdminUsername: "admin",
+		AdminPassword: "secret",
+		APIKey:        "dev-api-key",
+	}
+	config := service.FirewallConfig{
+		Version:        "cfg-1",
+		NFTablesConfig: "table inet cloudfirewall {}",
+		UpdatedAt:      time.Unix(1700000000, 0).UTC(),
+	}
+
+	store, err := service.NewStore(security, config, dbPath, 30*time.Second, 10*time.Second, 15*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httpapi.NewServer(store)
+
+	tokenResp := doJSON[types.CreateEnrollmentTokenResponse](t, server, http.MethodPost, "/api/v1/enrollment-tokens", "", nil, http.StatusCreated, withAPIKey())
+	enrollResp := doJSON[types.EnrollAgentResponse](t, server, http.MethodPost, "/api/v1/enroll", "", types.EnrollAgentRequest{
+		EnrollmentToken: tokenResp.Token,
+		AgentName:       "edge-01",
+		Hostname:        "edge-01.local",
+		AgentVersion:    "1.0.0",
+	}, http.StatusCreated)
+	doJSON[types.AgentHeartbeatResponse](t, server, http.MethodPost, "/api/v1/agents/self/heartbeat", enrollResp.AuthToken, types.AgentHeartbeatRequest{
+		Hostname:        "edge-01.local",
+		AgentVersion:    "1.0.0",
+		FirewallVersion: "cfg-1",
+	}, http.StatusOK)
+
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	restartedStore, err := service.NewStore(security, service.FirewallConfig{
+		Version:        "cfg-bootstrap",
+		NFTablesConfig: "table inet cloudfirewall { chain input { type filter hook input priority 0; policy drop; } }",
+		UpdatedAt:      time.Unix(1700000100, 0).UTC(),
+	}, dbPath, 30*time.Second, 10*time.Second, 15*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := restartedStore.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+
+	restartedServer := httpapi.NewServer(restartedStore)
+	listResp := doJSON[types.ListAgentsResponse](t, restartedServer, http.MethodGet, "/api/v1/agents", "", nil, http.StatusOK, withAPIKey())
+	if len(listResp.Agents) != 1 {
+		t.Fatalf("expected 1 persisted agent, got %d", len(listResp.Agents))
+	}
+	if listResp.Agents[0].Name != "edge-01" {
+		t.Fatalf("unexpected persisted agent name: %s", listResp.Agents[0].Name)
+	}
+
+	configResp := doJSON[types.AgentConfigResponse](t, restartedServer, http.MethodGet, "/api/v1/agents/self/config", enrollResp.AuthToken, nil, http.StatusOK)
+	if configResp.Version != "cfg-1" {
+		t.Fatalf("expected persisted config version, got %s", configResp.Version)
+	}
+}
+
+func newTestStore(t *testing.T, security service.SecurityConfig, config service.FirewallConfig) *service.Store {
+	t.Helper()
+
+	store, err := service.NewStore(security, config, t.TempDir()+"/api.db", 30*time.Second, 10*time.Second, 15*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	return store
 }
 
 type requestOption func(*http.Request)

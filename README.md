@@ -54,6 +54,7 @@ Start the API:
 
 ```bash
 ./bin/api \
+  -db-path ./var/api/cloudfirewall.db \
   -admin-username admin \
   -admin-password admin \
   -api-key dev-api-key
@@ -66,6 +67,8 @@ http://localhost:8080/swagger
 ```
 
 Frontend login uses the configured admin username and password. Programmatic API access can use the configured `X-API-Key` header. Enrollment tokens are now created from the frontend after login and are signed, expiring, and single-use.
+
+The API persists enrolled agents, one-time enrollment token state, and the active firewall configuration in an embedded BoltDB database. Point `-db-path` or `CLOUDFIREWALL_API_DB_PATH` at a stable file location if you want agent/auth state to survive API restarts. Admin login sessions are intentionally ephemeral and are not retained across restarts.
 
 Log into the frontend, generate an enrollment token, then run an agent once in dry-run mode:
 
