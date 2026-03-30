@@ -90,7 +90,29 @@ curl -fsSL https://raw.githubusercontent.com/cloudfirewall/cloudfirewall/main/sc
   --name edge-01
 ```
 
-The installer builds the agent from the GitHub source archive by default, installs `cloudfirewall-agent` under `/usr/local/bin`, writes `/etc/cloudfirewall/agent.env`, and creates `cloudfirewall-agent.service` for systemd. If you publish prebuilt binaries later, you can point the installer at one with `--binary-url`.
+The installer installs `cloudfirewall-agent` under `/usr/local/bin`, writes `/etc/cloudfirewall/agent.env`, and creates `cloudfirewall-agent.service` for systemd.
+
+For tagged releases, use the prebuilt binary flow so the server does not need Go installed:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cloudfirewall/cloudfirewall/main/scripts/install-agent.sh | sudo sh -s -- \
+  --api-url http://YOUR-API:8080 \
+  --enrollment-token <generated-enrollment-token> \
+  --name edge-01 \
+  --release-version v0.1.0
+```
+
+If `--release-version` is set, the installer downloads `cloudfirewall-agent_<version>_linux_<arch>.tar.gz` from the GitHub Releases download URL. If neither `--release-version` nor `--binary-url` is set, it falls back to building from the GitHub source archive.
+
+To prepare release artifacts locally:
+
+```bash
+make agent-release VERSION=v0.1.0
+```
+
+That writes Linux `amd64` and `arm64` agent archives into `dist/releases/`, ready to upload to a GitHub release.
+
+Tagged pushes such as `v0.1.0` also publish those two archives automatically through [release-agent.yml](/home/user/github/sireto/cloudfirewall/.github/workflows/release-agent.yml). After that, the installer can use `--release-version v0.1.0` without requiring Go on the target server.
 
 Start the frontend:
 

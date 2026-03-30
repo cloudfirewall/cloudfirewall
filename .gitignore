@@ -5,3 +5,4 @@ apps/frontend/dist/
 apps/frontend/tsconfig.tsbuildinfo
 tests/e2e/.tmp/
 var/
+dist/

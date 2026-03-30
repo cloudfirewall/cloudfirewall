@@ -1,4 +1,4 @@
-.PHONY: fmt vet test build cli agent api frontend test-e2e e2e-down
+.PHONY: fmt vet test build cli agent api frontend agent-release test-e2e e2e-down
 
 fmt:
 	gofmt -w ./apps
@@ -17,6 +17,10 @@ cli:
 
 agent:
 	mkdir -p bin && go build -o bin/agent ./apps/agent/cmd/agent
+
+agent-release:
+	test -n "$(VERSION)"
+	sh ./scripts/package-agent-release.sh
 
 api:
 	mkdir -p bin && go build -o bin/api ./apps/api/cmd/api

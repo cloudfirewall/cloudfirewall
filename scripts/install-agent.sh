@@ -8,6 +8,8 @@ AGENT_HOSTNAME="${CLOUDFIREWALL_AGENT_HOSTNAME:-}"
 AGENT_VERSION="${CLOUDFIREWALL_AGENT_VERSION:-0.1.0}"
 DRY_RUN="${CLOUDFIREWALL_DRY_RUN:-false}"
 BINARY_URL="${CLOUDFIREWALL_AGENT_BINARY_URL:-}"
+RELEASE_VERSION="${CLOUDFIREWALL_AGENT_RELEASE_VERSION:-}"
+RELEASE_BASE_URL="${CLOUDFIREWALL_AGENT_RELEASE_BASE_URL:-https://github.com/cloudfirewall/cloudfirewall/releases/download}"
 REPO_URL="${CLOUDFIREWALL_REPO_URL:-https://github.com/cloudfirewall/cloudfirewall}"
 REPO_REF="${CLOUDFIREWALL_REPO_REF:-main}"
 INSTALL_DIR="${CLOUDFIREWALL_AGENT_INSTALL_DIR:-/opt/cloudfirewall-agent}"
@@ -27,6 +29,8 @@ Options:
   --hostname HOSTNAME
   --agent-version VERSION
   --dry-run true|false
+  --release-version VERSION
+  --release-base-url URL
   --binary-url URL
   --repo-url URL
   --repo-ref REF
@@ -51,6 +55,33 @@ normalize_arch() {
       exit 1
       ;;
   esac
+}
+
+release_binary_url() {
+  arch="$(normalize_arch)"
+  printf '%s/%s/cloudfirewall-agent_%s_linux_%s.tar.gz' "$RELEASE_BASE_URL" "$RELEASE_VERSION" "$RELEASE_VERSION" "$arch"
+}
+
+install_from_release() {
+  need_cmd curl
+  need_cmd tar
+
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' EXIT INT TERM
+  archive="$tmp_dir/agent.tar.gz"
+  curl -fsSL "$(release_binary_url)" -o "$archive"
+  tar -xzf "$archive" -C "$tmp_dir"
+
+  extracted_binary="$tmp_dir/cloudfirewall-agent"
+  if [ ! -f "$extracted_binary" ]; then
+    echo "release archive did not contain cloudfirewall-agent" >&2
+    exit 1
+  fi
+
+  install -d "$(dirname "$BINARY_PATH")"
+  install -m 0755 "$extracted_binary" "$BINARY_PATH"
+  trap - EXIT INT TERM
+  rm -rf "$tmp_dir"
 }
 
 install_from_binary_url() {
@@ -160,6 +191,14 @@ while [ "$#" -gt 0 ]; do
       DRY_RUN="$2"
       shift 2
       ;;
+    --release-version)
+      RELEASE_VERSION="$2"
+      shift 2
+      ;;
+    --release-base-url)
+      RELEASE_BASE_URL="$2"
+      shift 2
+      ;;
     --binary-url)
       BINARY_URL="$2"
       shift 2
@@ -206,6 +245,8 @@ need_cmd install
 
 if [ -n "$BINARY_URL" ]; then
   install_from_binary_url
+elif [ -n "$RELEASE_VERSION" ]; then
+  install_from_release
 else
   install_from_source
 fi
