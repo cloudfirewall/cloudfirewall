@@ -1,0 +1,38 @@
+{
+  "policyId": "policy-risky-public-ssh",
+  "versionNumber": 1,
+  "environmentId": "env-risky",
+  "name": "risky-public-ssh",
+  "defaultInboundAction": "DENY",
+  "defaultOutboundAction": "ALLOW",
+  "systemRules": {
+    "allowLoopback": true,
+    "allowEstablishedRelated": true
+  },
+  "rules": [
+    {
+      "id": "rule-ssh-public",
+      "direction": "INBOUND",
+      "action": "ALLOW",
+      "source": {
+        "type": "PSEUDO",
+        "pseudoType": "PUBLIC_INTERNET"
+      },
+      "destination": {
+        "type": "PSEUDO",
+        "pseudoType": "THIS_NODE"
+      },
+      "service": {
+        "type": "LITERAL",
+        "protocol": "TCP",
+        "ports": [
+          22
+        ]
+      },
+      "logEnabled": true,
+      "enabled": true,
+      "orderIndex": 10,
+      "description": "Allow SSH from anywhere"
+    }
+  ]
+}

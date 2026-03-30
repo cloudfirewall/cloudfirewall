@@ -1,0 +1,24 @@
+{
+  "cases": [
+    {
+      "name": "public https allowed",
+      "direction": "INBOUND",
+      "srcIp": "203.0.113.10",
+      "dstIp": "198.51.100.5",
+      "protocol": "TCP",
+      "dstPort": 443,
+      "expectedVerdict": "ALLOW",
+      "expectedRuleId": "rule-https"
+    },
+    {
+      "name": "public ssh denied",
+      "direction": "INBOUND",
+      "srcIp": "203.0.113.10",
+      "dstIp": "198.51.100.5",
+      "protocol": "TCP",
+      "dstPort": 22,
+      "expectedVerdict": "DENY",
+      "expectedRuleId": ""
+    }
+  ]
+}

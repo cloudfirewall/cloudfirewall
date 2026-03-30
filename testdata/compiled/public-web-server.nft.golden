@@ -1,0 +1,21 @@
+# cloudfirewall generated artifact
+# policy_id=policy-public-web
+# version=1
+# name=public-web-server
+
+table inet cloudfirewall {
+  chain input {
+    type filter hook input priority 0; policy accept;
+    iifname "lo" accept comment "cfw:system=loopback"
+    ct state established,related accept comment "cfw:system=established-related"
+    tcp dport 443 allow comment "cfw:rule=rule-https;policy=policy-public-web;version=1"
+    ip saddr 203.0.113.0/24 tcp dport 22 allow comment "cfw:rule=rule-ssh;policy=policy-public-web;version=1"
+    deny comment "cfw:default=inbound"
+  }
+  chain output {
+    type filter hook output priority 0; policy accept;
+    oifname "lo" accept comment "cfw:system=loopback"
+    ct state established,related accept comment "cfw:system=established-related"
+    allow comment "cfw:default=outbound"
+  }
+}
