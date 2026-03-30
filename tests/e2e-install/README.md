@@ -10,6 +10,7 @@ What it does:
 - verifies the installed binary, env file, and service unit exist
 - starts the installed agent binary
 - confirms the agent enrolls, heartbeats, applies nftables, and enforces the expected network policy
+- exercises a two-agent rollout where both installed agents converge onto a new firewall version and flip live traffic behavior
 
 Run it with:
 
