@@ -17,6 +17,16 @@ type CreateEnrollmentTokenResponse struct {
 	ExpiresAt string `json:"expiresAt"`
 }
 
+type UpdateFirewallConfigRequest struct {
+	Version        string `json:"version,omitempty"`
+	NFTablesConfig string `json:"nftablesConfig"`
+}
+
+type UpdateFirewallConfigResponse struct {
+	Version   string `json:"version"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
 type AdminLoginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`

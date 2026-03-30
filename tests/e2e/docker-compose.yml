@@ -39,6 +39,25 @@ services:
         echo "$$response" > /shared/enrollment.json
         printf '%s' "$$response" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p' > /shared/enrollment.token
 
+  enrollment-token-b:
+    image: curlimages/curl:8.7.1
+    user: "0:0"
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - token-share-b:/shared
+    entrypoint:
+      - sh
+      - -ec
+      - |
+        response="$$(curl -fsS -X POST http://api:8080/api/v1/enrollment-tokens \
+          -H 'X-API-Key: dev-api-key' \
+          -H 'Content-Type: application/json' \
+          -d '{"ttlSeconds":600}')"
+        echo "$$response" > /shared/enrollment.json
+        printf '%s' "$$response" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p' > /shared/enrollment.token
+
   agent:
     build:
       context: ../..
@@ -59,6 +78,26 @@ services:
     volumes:
       - token-share:/shared:ro
 
+  agent-b:
+    build:
+      context: ../..
+      dockerfile: tests/e2e/Dockerfile.agent
+    depends_on:
+      api:
+        condition: service_healthy
+      enrollment-token-b:
+        condition: service_completed_successfully
+    cap_add:
+      - NET_ADMIN
+    environment:
+      CLOUDFIREWALL_API_URL: http://api:8080
+      CLOUDFIREWALL_AGENT_HOSTNAME: e2e-agent-02
+      CLOUDFIREWALL_AGENT_NAME: e2e-agent-02
+      CLOUDFIREWALL_AGENT_VERSION: e2e
+      CLOUDFIREWALL_DRY_RUN: "false"
+    volumes:
+      - token-share-b:/shared:ro
+
   probe:
     build:
       context: ../..
@@ -69,3 +108,4 @@ services:
 
 volumes:
   token-share:
+  token-share-b:

@@ -119,6 +119,9 @@ func TestSwaggerAndOpenAPIEndpoints(t *testing.T) {
 	if _, ok := paths["/api/v1/enrollment-tokens"]; !ok {
 		t.Fatalf("enrollment token path missing from spec")
 	}
+	if _, ok := paths["/api/v1/firewall-config"]; !ok {
+		t.Fatalf("firewall config path missing from spec")
+	}
 }
 
 func TestListAgentsAcceptsAPIKey(t *testing.T) {
@@ -136,6 +139,46 @@ func TestListAgentsAcceptsAPIKey(t *testing.T) {
 	server := httpapi.NewServer(store)
 
 	doJSON[types.ListAgentsResponse](t, server, http.MethodGet, "/api/v1/agents", "", nil, http.StatusOK, withAPIKey())
+}
+
+func TestUpdateFirewallConfig(t *testing.T) {
+	store := service.NewStore(
+		service.SecurityConfig{
+			AdminUsername: "admin",
+			AdminPassword: "secret",
+			APIKey:        "dev-api-key",
+		},
+		service.FirewallConfig{
+			Version:        "cfg-1",
+			NFTablesConfig: "table inet cloudfirewall {}",
+			UpdatedAt:      time.Unix(1700000000, 0).UTC(),
+		},
+		30*time.Second,
+		10*time.Second,
+		15*time.Second,
+	)
+	server := httpapi.NewServer(store)
+
+	updateResp := doJSON[types.UpdateFirewallConfigResponse](t, server, http.MethodPost, "/api/v1/firewall-config", "", types.UpdateFirewallConfigRequest{
+		Version:        "cfg-2",
+		NFTablesConfig: "table inet cloudfirewall { chain input { type filter hook input priority 0; policy accept; drop } }",
+	}, http.StatusOK, withAPIKey())
+	if updateResp.Version != "cfg-2" {
+		t.Fatalf("unexpected updated version: %s", updateResp.Version)
+	}
+
+	tokenResp := doJSON[types.CreateEnrollmentTokenResponse](t, server, http.MethodPost, "/api/v1/enrollment-tokens", "", nil, http.StatusCreated, withAPIKey())
+	enrollResp := doJSON[types.EnrollAgentResponse](t, server, http.MethodPost, "/api/v1/enroll", "", types.EnrollAgentRequest{
+		EnrollmentToken: tokenResp.Token,
+		AgentName:       "edge-01",
+		Hostname:        "edge-01.local",
+		AgentVersion:    "1.0.0",
+	}, http.StatusCreated)
+
+	configResp := doJSON[types.AgentConfigResponse](t, server, http.MethodGet, "/api/v1/agents/self/config", enrollResp.AuthToken, nil, http.StatusOK)
+	if configResp.Version != "cfg-2" {
+		t.Fatalf("unexpected config version after update: %s", configResp.Version)
+	}
 }
 
 func TestEnrollmentTokenIsOneTimeUse(t *testing.T) {

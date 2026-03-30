@@ -219,6 +219,34 @@ func (s *Store) Config(authToken string) (types.AgentConfigResponse, error) {
 	}, nil
 }
 
+func (s *Store) UpdateFirewallConfig(req types.UpdateFirewallConfigRequest) (types.UpdateFirewallConfigResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	content := strings.TrimSpace(req.NFTablesConfig)
+	if content == "" {
+		return types.UpdateFirewallConfigResponse{}, errors.New("nftablesConfig is required")
+	}
+
+	now := time.Now().UTC()
+	version := strings.TrimSpace(req.Version)
+	if version == "" {
+		sum := sha256.Sum256([]byte(content))
+		version = "sha256-" + hex.EncodeToString(sum[:8])
+	}
+
+	s.firewallConfig = FirewallConfig{
+		Version:        version,
+		NFTablesConfig: req.NFTablesConfig,
+		UpdatedAt:      now,
+	}
+
+	return types.UpdateFirewallConfigResponse{
+		Version:   version,
+		UpdatedAt: now.Format(time.RFC3339),
+	}, nil
+}
+
 func (s *Store) AuthorizeAPIKey(apiKey string) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

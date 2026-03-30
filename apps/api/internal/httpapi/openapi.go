@@ -31,6 +31,8 @@ func openAPISpec() map[string]any {
 				"AdminLoginResponse":            schemaFor(types.AdminLoginResponse{}),
 				"CreateEnrollmentTokenRequest":  schemaFor(types.CreateEnrollmentTokenRequest{}),
 				"CreateEnrollmentTokenResponse": schemaFor(types.CreateEnrollmentTokenResponse{}),
+				"UpdateFirewallConfigRequest":   schemaFor(types.UpdateFirewallConfigRequest{}),
+				"UpdateFirewallConfigResponse":  schemaFor(types.UpdateFirewallConfigResponse{}),
 				"EnrollAgentRequest":            schemaFor(types.EnrollAgentRequest{}),
 				"EnrollAgentResponse":           schemaFor(types.EnrollAgentResponse{}),
 				"AgentHeartbeatRequest":         schemaFor(types.AgentHeartbeatRequest{}),
@@ -79,6 +81,21 @@ func openAPISpec() map[string]any {
 					"requestBody": jsonRequestBody("CreateEnrollmentTokenRequest"),
 					"responses": map[string]any{
 						"201": jsonResponse("CreateEnrollmentTokenResponse", "New enrollment token"),
+						"401": jsonResponse("ErrorResponse", "Missing or invalid admin bearer token or API key"),
+					},
+				},
+			},
+			"/api/v1/firewall-config": map[string]any{
+				"post": map[string]any{
+					"summary": "Update the active nftables configuration served to agents",
+					"security": []map[string]any{
+						{"bearerAuth": []any{}},
+						{"apiKeyAuth": []any{}},
+					},
+					"requestBody": jsonRequestBody("UpdateFirewallConfigRequest"),
+					"responses": map[string]any{
+						"200": jsonResponse("UpdateFirewallConfigResponse", "Firewall config updated"),
+						"400": jsonResponse("ErrorResponse", "Invalid firewall config request"),
 						"401": jsonResponse("ErrorResponse", "Missing or invalid admin bearer token or API key"),
 					},
 				},
@@ -183,6 +200,16 @@ func schemaFor(v any) map[string]any {
 			stringField("token"),
 			stringField("tokenId"),
 			stringField("expiresAt"),
+		)
+	case types.UpdateFirewallConfigRequest:
+		return objectSchema(
+			stringField("version"),
+			stringField("nftablesConfig"),
+		)
+	case types.UpdateFirewallConfigResponse:
+		return objectSchema(
+			stringField("version"),
+			stringField("updatedAt"),
 		)
 	case types.EnrollAgentRequest:
 		return objectSchema(

@@ -44,6 +44,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 	s.mux.HandleFunc("POST /api/v1/admin/login", s.handleAdminLogin)
 	s.mux.HandleFunc("POST /api/v1/enrollment-tokens", s.handleCreateEnrollmentToken)
+	s.mux.HandleFunc("POST /api/v1/firewall-config", s.handleUpdateFirewallConfig)
 	s.mux.HandleFunc("POST /api/v1/enroll", s.handleEnroll)
 	s.mux.HandleFunc("POST /api/v1/agents/self/heartbeat", s.handleHeartbeat)
 	s.mux.HandleFunc("GET /api/v1/agents/self/config", s.handleConfig)
@@ -124,6 +125,27 @@ func (s *Server) handleCreateEnrollmentToken(w http.ResponseWriter, r *http.Requ
 	}
 
 	writeJSON(w, http.StatusCreated, resp)
+}
+
+func (s *Server) handleUpdateFirewallConfig(w http.ResponseWriter, r *http.Request) {
+	if err := s.authorizeAdminRequest(r); err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	var req types.UpdateFirewallConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	resp, err := s.store.UpdateFirewallConfig(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
