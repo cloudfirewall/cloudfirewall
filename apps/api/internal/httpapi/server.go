@@ -38,11 +38,42 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) routes() {
+	s.mux.HandleFunc("GET /swagger", s.handleSwaggerUI)
+	s.mux.HandleFunc("GET /openapi.json", s.handleOpenAPI)
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 	s.mux.HandleFunc("POST /api/v1/enroll", s.handleEnroll)
 	s.mux.HandleFunc("POST /api/v1/agents/self/heartbeat", s.handleHeartbeat)
 	s.mux.HandleFunc("GET /api/v1/agents/self/config", s.handleConfig)
 	s.mux.HandleFunc("GET /api/v1/agents", s.handleListAgents)
+}
+
+func (s *Server) handleSwaggerUI(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cloudfirewall API Docs</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script>
+      window.ui = SwaggerUIBundle({
+        url: "/openapi.json",
+        dom_id: "#swagger-ui",
+        deepLinking: true,
+        presets: [SwaggerUIBundle.presets.apis],
+      });
+    </script>
+  </body>
+</html>`))
+}
+
+func (s *Server) handleOpenAPI(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, openAPISpec())
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {

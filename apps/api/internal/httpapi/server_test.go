@@ -62,6 +62,42 @@ func TestEnrollHeartbeatListAndConfig(t *testing.T) {
 	}
 }
 
+func TestSwaggerAndOpenAPIEndpoints(t *testing.T) {
+	store := service.NewStore(
+		[]string{"dev-enrollment-token"},
+		service.FirewallConfig{},
+		30*time.Second,
+		10*time.Second,
+		15*time.Second,
+	)
+	server := httpapi.NewServer(store)
+
+	swaggerReq, err := http.NewRequest(http.MethodGet, "/swagger", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	swaggerRecorder := httptest.NewRecorder()
+	server.ServeHTTP(swaggerRecorder, swaggerReq)
+	if swaggerRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected swagger status %d", swaggerRecorder.Code)
+	}
+	if got := swaggerRecorder.Body.String(); !bytes.Contains([]byte(got), []byte("SwaggerUIBundle")) {
+		t.Fatalf("swagger html did not include SwaggerUI bootstrap")
+	}
+
+	spec := doJSON[map[string]any](t, server, http.MethodGet, "/openapi.json", "", nil, http.StatusOK)
+	if spec["openapi"] != "3.0.3" {
+		t.Fatalf("unexpected openapi version: %#v", spec["openapi"])
+	}
+	paths, ok := spec["paths"].(map[string]any)
+	if !ok {
+		t.Fatalf("paths missing from spec")
+	}
+	if _, ok := paths["/api/v1/enroll"]; !ok {
+		t.Fatalf("enroll path missing from spec")
+	}
+}
+
 func doJSON[T any](t *testing.T, handler http.Handler, method, path, authToken string, payload any, wantStatus int) T {
 	t.Helper()
 

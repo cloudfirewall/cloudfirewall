@@ -55,6 +55,12 @@ Start the API:
 ./bin/api -enrollment-token dev-enrollment-token
 ```
 
+Open the API docs:
+
+```text
+http://localhost:8080/swagger
+```
+
 Enroll and run an agent once in dry-run mode:
 
 ```bash
