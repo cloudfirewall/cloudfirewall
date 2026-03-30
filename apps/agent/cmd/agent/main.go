@@ -16,11 +16,11 @@ import (
 func main() {
 	apiURL := flag.String("api-url", envOrDefault("CLOUDFIREWALL_API_URL", "http://localhost:8080"), "base URL of the cloudfirewall API")
 	enrollmentToken := flag.String("enrollment-token", envOrDefault("CLOUDFIREWALL_ENROLLMENT_TOKEN", ""), "one-time enrollment token issued by the API")
-	agentName := flag.String("name", "", "logical name for this agent")
+	agentName := flag.String("name", envOrDefault("CLOUDFIREWALL_AGENT_NAME", ""), "logical name for this agent")
 	hostname := flag.String("hostname", envOrDefault("CLOUDFIREWALL_AGENT_HOSTNAME", ""), "hostname reported to the API")
-	agentVersion := flag.String("agent-version", "0.1.0", "agent version reported to the API")
+	agentVersion := flag.String("agent-version", envOrDefault("CLOUDFIREWALL_AGENT_VERSION", "0.1.0"), "agent version reported to the API")
 	once := flag.Bool("once", false, "run a single enroll/config/heartbeat cycle and exit")
-	dryRun := flag.Bool("dry-run", true, "do not invoke the nft CLI when applying the config")
+	dryRun := flag.Bool("dry-run", envOrDefault("CLOUDFIREWALL_DRY_RUN", "true") == "true", "do not invoke the nft CLI when applying the config")
 	flag.Parse()
 
 	if *enrollmentToken == "" {

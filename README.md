@@ -81,6 +81,17 @@ Log into the frontend, generate an enrollment token, then run an agent once in d
   -dry-run
 ```
 
+To install an agent on a server as a managed service in one line:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cloudfirewall/cloudfirewall/main/scripts/install-agent.sh | sudo sh -s -- \
+  --api-url http://YOUR-API:8080 \
+  --enrollment-token <generated-enrollment-token> \
+  --name edge-01
+```
+
+The installer builds the agent from the GitHub source archive by default, installs `cloudfirewall-agent` under `/usr/local/bin`, writes `/etc/cloudfirewall/agent.env`, and creates `cloudfirewall-agent.service` for systemd. If you publish prebuilt binaries later, you can point the installer at one with `--binary-url`.
+
 Start the frontend:
 
 ```bash
