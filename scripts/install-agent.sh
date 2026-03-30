@@ -135,6 +135,7 @@ EOF
 }
 
 write_service_file() {
+  install -d "$(dirname "$SERVICE_PATH")"
   cat >"$SERVICE_PATH" <<EOF
 [Unit]
 Description=Cloudfirewall Agent
