@@ -21,10 +21,14 @@ type Runner struct {
 	version         string
 }
 
-func NewRunner(client *apiclient.Client, applier firewall.Applier, enrollmentToken, name, version string) *Runner {
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = "unknown-host"
+func NewRunner(client *apiclient.Client, applier firewall.Applier, enrollmentToken, name, hostname, version string) *Runner {
+	if strings.TrimSpace(hostname) == "" {
+		detectedHostname, err := os.Hostname()
+		if err != nil {
+			hostname = "unknown-host"
+		} else {
+			hostname = detectedHostname
+		}
 	}
 
 	if strings.TrimSpace(name) == "" {

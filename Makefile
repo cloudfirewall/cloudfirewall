@@ -1,4 +1,4 @@
-.PHONY: fmt vet test build cli agent api frontend
+.PHONY: fmt vet test build cli agent api frontend test-e2e e2e-down
 
 fmt:
 	gofmt -w ./apps
@@ -23,3 +23,9 @@ api:
 
 frontend:
 	cd apps/frontend && npm install && npm run build
+
+test-e2e:
+	tests/e2e/run.sh
+
+e2e-down:
+	docker compose -f tests/e2e/docker-compose.yml down -v --remove-orphans

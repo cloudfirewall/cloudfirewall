@@ -30,7 +30,7 @@ func renderInputChain(policy model.PolicyVersionIR) string {
 			b.WriteString(renderRule(rule, policy, true))
 		}
 	}
-	b.WriteString(fmt.Sprintf("    %s comment \"cfw:default=inbound\"\n", strings.ToLower(string(policy.Defaults.Inbound))))
+	b.WriteString(fmt.Sprintf("    %s comment \"cfw:default=inbound\"\n", nftVerdict(policy.Defaults.Inbound)))
 	b.WriteString("  }\n")
 	return b.String()
 }
@@ -57,7 +57,7 @@ func renderOutputChain(policy model.PolicyVersionIR) string {
 			b.WriteString(renderRule(rule, policy, false))
 		}
 	}
-	b.WriteString(fmt.Sprintf("    %s comment \"cfw:default=outbound\"\n", strings.ToLower(string(policy.Defaults.Outbound))))
+	b.WriteString(fmt.Sprintf("    %s comment \"cfw:default=outbound\"\n", nftVerdict(policy.Defaults.Outbound)))
 	b.WriteString("  }\n")
 	return b.String()
 }

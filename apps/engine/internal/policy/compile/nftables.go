@@ -26,7 +26,7 @@ func renderRule(rule model.RuleIR, policy model.PolicyVersionIR, inbound bool) s
 		parts = append(parts, renderNetworkMatch("ip daddr", rule.Destination, policy))
 	}
 	parts = append(parts, renderServiceMatch(rule.Service, policy))
-	parts = append(parts, strings.ToLower(string(rule.Action)))
+	parts = append(parts, nftVerdict(rule.Action))
 	parts = append(parts, fmt.Sprintf("comment \"cfw:rule=%s;policy=%s;version=%d\"", rule.ID, policy.PolicyID, policy.VersionNumber))
 	return "    " + strings.Join(filterEmpty(parts), " ") + "\n"
 }
@@ -97,4 +97,17 @@ func filterEmpty(parts []string) []string {
 		}
 	}
 	return out
+}
+
+func nftVerdict(verdict model.Verdict) string {
+	switch verdict {
+	case model.VerdictAllow:
+		return "accept"
+	case model.VerdictDeny:
+		return "drop"
+	case model.VerdictReject:
+		return "reject"
+	default:
+		return strings.ToLower(string(verdict))
+	}
 }

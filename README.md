@@ -41,7 +41,7 @@ make agent
 
 ## Agent Flow
 
-1. Agents enroll with `POST /api/v1/enroll` using a shared enrollment token.
+1. Agents enroll with `POST /api/v1/enroll` using a one-time signed enrollment token.
 2. Admin users log into the frontend and create one-time signed enrollment tokens with `POST /api/v1/enrollment-tokens`.
 3. The API verifies the enrollment token signature and one-time-use status, then returns an agent auth token plus suggested heartbeat and config poll intervals.
 4. Agents pull `GET /api/v1/agents/self/config` to get the current nftables ruleset and config version.
@@ -85,6 +85,16 @@ cd apps/frontend
 npm install
 npm run dev
 ```
+
+## E2E Testing
+
+For containerized agent validation without touching the host firewall:
+
+```bash
+make test-e2e
+```
+
+The Docker-based e2e stack runs the API, generates a one-time enrollment token, starts an agent container with `CAP_NET_ADMIN`, applies nftables inside the container namespace, and verifies the agent shows as online through the API. The scaffold lives in `tests/e2e/`.
 
 ## App entrypoints
 
