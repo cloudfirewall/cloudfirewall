@@ -20,8 +20,15 @@ func openAPISpec() map[string]any {
 					"scheme":       "bearer",
 					"bearerFormat": "token",
 				},
+				"apiKeyAuth": map[string]any{
+					"type": "apiKey",
+					"in":   "header",
+					"name": "X-API-Key",
+				},
 			},
 			"schemas": map[string]any{
+				"AdminLoginRequest":      schemaFor(types.AdminLoginRequest{}),
+				"AdminLoginResponse":     schemaFor(types.AdminLoginResponse{}),
 				"EnrollAgentRequest":     schemaFor(types.EnrollAgentRequest{}),
 				"EnrollAgentResponse":    schemaFor(types.EnrollAgentResponse{}),
 				"AgentHeartbeatRequest":  schemaFor(types.AgentHeartbeatRequest{}),
@@ -47,6 +54,16 @@ func openAPISpec() map[string]any {
 						"200": map[string]any{
 							"description": "Service health",
 						},
+					},
+				},
+			},
+			"/api/v1/admin/login": map[string]any{
+				"post": map[string]any{
+					"summary":     "Login as the configured admin user",
+					"requestBody": jsonRequestBody("AdminLoginRequest"),
+					"responses": map[string]any{
+						"200": jsonResponse("AdminLoginResponse", "Admin session token"),
+						"401": jsonResponse("ErrorResponse", "Invalid admin credentials"),
 					},
 				},
 			},
@@ -88,8 +105,13 @@ func openAPISpec() map[string]any {
 			"/api/v1/agents": map[string]any{
 				"get": map[string]any{
 					"summary": "List enrolled agents and their heartbeat state",
+					"security": []map[string]any{
+						{"bearerAuth": []any{}},
+						{"apiKeyAuth": []any{}},
+					},
 					"responses": map[string]any{
 						"200": jsonResponse("ListAgentsResponse", "Current fleet status"),
+						"401": jsonResponse("ErrorResponse", "Missing or invalid admin bearer token or API key"),
 					},
 				},
 			},
@@ -127,6 +149,15 @@ func ref(schemaName string) map[string]any {
 
 func schemaFor(v any) map[string]any {
 	switch v.(type) {
+	case types.AdminLoginRequest:
+		return objectSchema(
+			stringField("username"),
+			stringField("password"),
+		)
+	case types.AdminLoginResponse:
+		return objectSchema(
+			stringField("authToken"),
+		)
 	case types.EnrollAgentRequest:
 		return objectSchema(
 			stringField("enrollmentToken"),

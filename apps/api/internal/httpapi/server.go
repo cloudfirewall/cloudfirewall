@@ -27,7 +27,7 @@ func NewServer(store *service.Store) *Server {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-API-Key")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
@@ -41,6 +41,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /swagger", s.handleSwaggerUI)
 	s.mux.HandleFunc("GET /openapi.json", s.handleOpenAPI)
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
+	s.mux.HandleFunc("POST /api/v1/admin/login", s.handleAdminLogin)
 	s.mux.HandleFunc("POST /api/v1/enroll", s.handleEnroll)
 	s.mux.HandleFunc("POST /api/v1/agents/self/heartbeat", s.handleHeartbeat)
 	s.mux.HandleFunc("GET /api/v1/agents/self/config", s.handleConfig)
@@ -78,6 +79,26 @@ func (s *Server) handleOpenAPI(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
+	var req types.AdminLoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	resp, err := s.store.AdminLogin(req)
+	if err != nil {
+		if errors.Is(err, service.ErrUnauthorized) {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
@@ -146,8 +167,26 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (s *Server) handleListAgents(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
+	if err := s.authorizeAdminRequest(r); err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
 	writeJSON(w, http.StatusOK, s.store.ListAgents())
+}
+
+func (s *Server) authorizeAdminRequest(r *http.Request) error {
+	if apiKey := strings.TrimSpace(r.Header.Get("X-API-Key")); apiKey != "" {
+		return s.store.AuthorizeAPIKey(apiKey)
+	}
+
+	authToken, ok := bearerToken(r)
+	if !ok {
+		return service.ErrUnauthorized
+	}
+
+	return s.store.AuthorizeAdminSession(authToken)
 }
 
 func bearerToken(r *http.Request) (string, bool) {

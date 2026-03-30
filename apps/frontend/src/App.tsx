@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useEffect, useState, type FormEvent } from "react";
 
 type AgentSummary = {
 	id: string;
@@ -17,20 +17,42 @@ type ListAgentsResponse = {
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const POLL_INTERVAL_MS = 5000;
+const TOKEN_KEY = "cloudfirewall_admin_token";
 
 export default function App() {
+	const [authToken, setAuthToken] = useState(() => window.localStorage.getItem(TOKEN_KEY) ?? "");
+	const [username, setUsername] = useState("admin");
+	const [password, setPassword] = useState("");
 	const [agents, setAgents] = useState<AgentSummary[]>([]);
 	const [error, setError] = useState("");
 	const [isLoading, setIsLoading] = useState(true);
 	const [lastUpdated, setLastUpdated] = useState("");
+	const [authError, setAuthError] = useState("");
+	const [isAuthenticating, setIsAuthenticating] = useState(false);
 
 	useEffect(() => {
+		if (!authToken) {
+			setAgents([]);
+			setIsLoading(false);
+			return;
+		}
+
 		let cancelled = false;
+		setIsLoading(true);
 
 		async function loadAgents() {
 			try {
-				const response = await fetch(`${API_BASE}/api/v1/agents`);
+				const response = await fetch(`${API_BASE}/api/v1/agents`, {
+					headers: {
+						Authorization: `Bearer ${authToken}`,
+					},
+				});
 				if (!response.ok) {
+					if (response.status === 401) {
+						window.localStorage.removeItem(TOKEN_KEY);
+						setAuthToken("");
+						throw new Error("Session expired. Please log in again.");
+					}
 					throw new Error(`Request failed with status ${response.status}`);
 				}
 
@@ -68,9 +90,80 @@ export default function App() {
 			cancelled = true;
 			window.clearInterval(timer);
 		};
-	}, []);
+	}, [authToken]);
 
 	const onlineAgents = agents.filter((agent) => agent.online).length;
+
+	async function handleLogin(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		setIsAuthenticating(true);
+		setAuthError("");
+
+		try {
+			const response = await fetch(`${API_BASE}/api/v1/admin/login`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ username, password }),
+			});
+
+			if (!response.ok) {
+				throw new Error(response.status === 401 ? "Invalid username or password" : `Login failed with status ${response.status}`);
+			}
+
+			const payload = (await response.json()) as { authToken: string };
+			window.localStorage.setItem(TOKEN_KEY, payload.authToken);
+			setAuthToken(payload.authToken);
+			setPassword("");
+		} catch (loginError) {
+			setAuthError(loginError instanceof Error ? loginError.message : "Login failed");
+		} finally {
+			setIsAuthenticating(false);
+		}
+	}
+
+	function handleLogout() {
+		window.localStorage.removeItem(TOKEN_KEY);
+		setAuthToken("");
+		setAgents([]);
+		setLastUpdated("");
+		setError("");
+	}
+
+	if (!authToken) {
+		return (
+			<div className="app-shell">
+				<div className="dashboard">
+					<section className="hero">
+						<div>
+							<p className="eyebrow">Cloudfirewall Fleet</p>
+							<h1>Admin login</h1>
+						</div>
+						<p>Sign in with the API's configured admin username and password to view enrolled agents.</p>
+					</section>
+					<form className="login-card" onSubmit={handleLogin}>
+						<label className="field">
+							<span>Username</span>
+							<input value={username} onChange={(event) => setUsername(event.target.value)} />
+						</label>
+						<label className="field">
+							<span>Password</span>
+							<input
+								type="password"
+								value={password}
+								onChange={(event) => setPassword(event.target.value)}
+							/>
+						</label>
+						<button type="submit" disabled={isAuthenticating}>
+							{isAuthenticating ? "Signing in..." : "Login"}
+						</button>
+						{authError ? <div className="error-banner">Unable to login: {authError}</div> : null}
+					</form>
+				</div>
+			</div>
+		);
+	}
 
 	return (
 		<div className="app-shell">
@@ -101,10 +194,13 @@ export default function App() {
 				</section>
 
 				<div className="toolbar">
-					<button onClick={() => window.location.reload()}>Refresh</button>
-					<small>
-						{isLoading ? "Loading agents..." : `Last updated ${lastUpdated || "just now"}`}
-					</small>
+					<div className="toolbar-actions">
+						<button onClick={() => window.location.reload()}>Refresh</button>
+						<button className="secondary-button" onClick={handleLogout}>
+							Logout
+						</button>
+					</div>
+					<small>{isLoading ? "Loading agents..." : `Last updated ${lastUpdated || "just now"}`}</small>
 				</div>
 
 				{error ? <div className="error-banner">Unable to load agents: {error}</div> : null}

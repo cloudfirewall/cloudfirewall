@@ -52,7 +52,11 @@ make agent
 Start the API:
 
 ```bash
-./bin/api -enrollment-token dev-enrollment-token
+./bin/api \
+  -enrollment-token dev-enrollment-token \
+  -admin-username admin \
+  -admin-password admin \
+  -api-key dev-api-key
 ```
 
 Open the API docs:
@@ -60,6 +64,8 @@ Open the API docs:
 ```text
 http://localhost:8080/swagger
 ```
+
+Frontend login uses the configured admin username and password. Programmatic API access can use the configured `X-API-Key` header.
 
 Enroll and run an agent once in dry-run mode:
 

@@ -7,6 +7,15 @@ type EnrollAgentRequest struct {
 	AgentVersion    string `json:"agentVersion"`
 }
 
+type AdminLoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type AdminLoginResponse struct {
+	AuthToken string `json:"authToken"`
+}
+
 type EnrollAgentResponse struct {
 	AgentID                   string `json:"agentId"`
 	AuthToken                 string `json:"authToken"`

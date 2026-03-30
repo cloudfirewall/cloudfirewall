@@ -17,6 +17,12 @@ var (
 	ErrUnauthorized           = errors.New("unauthorized")
 )
 
+type SecurityConfig struct {
+	AdminUsername string
+	AdminPassword string
+	APIKey        string
+}
+
 type FirewallConfig struct {
 	Version        string
 	NFTablesConfig string
@@ -39,13 +45,15 @@ type Store struct {
 	enrollmentTokens   map[string]struct{}
 	agents             map[string]*AgentRecord
 	agentIDsByToken    map[string]string
+	adminSessions      map[string]time.Time
 	firewallConfig     FirewallConfig
+	security           SecurityConfig
 	heartbeatTimeout   time.Duration
 	heartbeatInterval  time.Duration
 	configPollInterval time.Duration
 }
 
-func NewStore(tokens []string, config FirewallConfig, heartbeatTimeout, heartbeatInterval, configPollInterval time.Duration) *Store {
+func NewStore(tokens []string, security SecurityConfig, config FirewallConfig, heartbeatTimeout, heartbeatInterval, configPollInterval time.Duration) *Store {
 	tokenSet := make(map[string]struct{}, len(tokens))
 	for _, token := range tokens {
 		if trimmed := strings.TrimSpace(token); trimmed != "" {
@@ -57,11 +65,26 @@ func NewStore(tokens []string, config FirewallConfig, heartbeatTimeout, heartbea
 		enrollmentTokens:   tokenSet,
 		agents:             make(map[string]*AgentRecord),
 		agentIDsByToken:    make(map[string]string),
+		adminSessions:      make(map[string]time.Time),
 		firewallConfig:     config,
+		security:           security,
 		heartbeatTimeout:   heartbeatTimeout,
 		heartbeatInterval:  heartbeatInterval,
 		configPollInterval: configPollInterval,
 	}
+}
+
+func (s *Store) AdminLogin(req types.AdminLoginRequest) (types.AdminLoginResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if strings.TrimSpace(req.Username) != s.security.AdminUsername || req.Password != s.security.AdminPassword {
+		return types.AdminLoginResponse{}, ErrUnauthorized
+	}
+
+	token := "adm_" + randomHex(24)
+	s.adminSessions[token] = time.Now().UTC()
+	return types.AdminLoginResponse{AuthToken: token}, nil
 }
 
 func (s *Store) Enroll(req types.EnrollAgentRequest) (types.EnrollAgentResponse, error) {
@@ -141,6 +164,26 @@ func (s *Store) Config(authToken string) (types.AgentConfigResponse, error) {
 		NFTablesConfig: s.firewallConfig.NFTablesConfig,
 		UpdatedAt:      s.firewallConfig.UpdatedAt.Format(time.RFC3339),
 	}, nil
+}
+
+func (s *Store) AuthorizeAPIKey(apiKey string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if strings.TrimSpace(apiKey) == "" || strings.TrimSpace(apiKey) != s.security.APIKey {
+		return ErrUnauthorized
+	}
+	return nil
+}
+
+func (s *Store) AuthorizeAdminSession(authToken string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if _, ok := s.adminSessions[strings.TrimSpace(authToken)]; !ok {
+		return ErrUnauthorized
+	}
+	return nil
 }
 
 func (s *Store) ListAgents() types.ListAgentsResponse {

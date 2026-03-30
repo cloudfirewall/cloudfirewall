@@ -16,6 +16,11 @@ import (
 func TestEnrollHeartbeatListAndConfig(t *testing.T) {
 	store := service.NewStore(
 		[]string{"dev-enrollment-token"},
+		service.SecurityConfig{
+			AdminUsername: "admin",
+			AdminPassword: "secret",
+			APIKey:        "dev-api-key",
+		},
 		service.FirewallConfig{
 			Version:        "cfg-1",
 			NFTablesConfig: "table inet cloudfirewall {}",
@@ -50,7 +55,12 @@ func TestEnrollHeartbeatListAndConfig(t *testing.T) {
 		t.Fatalf("unexpected config version: %s", configResp.Version)
 	}
 
-	listResp := doJSON[types.ListAgentsResponse](t, server, http.MethodGet, "/api/v1/agents", "", nil, http.StatusOK)
+	loginResp := doJSON[types.AdminLoginResponse](t, server, http.MethodPost, "/api/v1/admin/login", "", types.AdminLoginRequest{
+		Username: "admin",
+		Password: "secret",
+	}, http.StatusOK)
+
+	listResp := doJSON[types.ListAgentsResponse](t, server, http.MethodGet, "/api/v1/agents", loginResp.AuthToken, nil, http.StatusOK)
 	if len(listResp.Agents) != 1 {
 		t.Fatalf("expected 1 agent, got %d", len(listResp.Agents))
 	}
@@ -65,6 +75,11 @@ func TestEnrollHeartbeatListAndConfig(t *testing.T) {
 func TestSwaggerAndOpenAPIEndpoints(t *testing.T) {
 	store := service.NewStore(
 		[]string{"dev-enrollment-token"},
+		service.SecurityConfig{
+			AdminUsername: "admin",
+			AdminPassword: "secret",
+			APIKey:        "dev-api-key",
+		},
 		service.FirewallConfig{},
 		30*time.Second,
 		10*time.Second,
@@ -95,6 +110,37 @@ func TestSwaggerAndOpenAPIEndpoints(t *testing.T) {
 	}
 	if _, ok := paths["/api/v1/enroll"]; !ok {
 		t.Fatalf("enroll path missing from spec")
+	}
+	if _, ok := paths["/api/v1/admin/login"]; !ok {
+		t.Fatalf("admin login path missing from spec")
+	}
+}
+
+func TestListAgentsAcceptsAPIKey(t *testing.T) {
+	store := service.NewStore(
+		[]string{"dev-enrollment-token"},
+		service.SecurityConfig{
+			AdminUsername: "admin",
+			AdminPassword: "secret",
+			APIKey:        "dev-api-key",
+		},
+		service.FirewallConfig{},
+		30*time.Second,
+		10*time.Second,
+		15*time.Second,
+	)
+	server := httpapi.NewServer(store)
+
+	req, err := http.NewRequest(http.MethodGet, "/api/v1/agents", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-API-Key", "dev-api-key")
+
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d", recorder.Code)
 	}
 }
 

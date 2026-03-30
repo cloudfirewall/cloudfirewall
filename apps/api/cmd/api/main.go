@@ -18,6 +18,9 @@ func main() {
 	addr := flag.String("addr", ":8080", "listen address")
 	configPath := flag.String("config", "apps/engine/testdata/compiled/public-web-server.nft.golden", "path to nftables config file")
 	enrollmentToken := flag.String("enrollment-token", envOrDefault("CLOUDFIREWALL_ENROLLMENT_TOKEN", "dev-enrollment-token"), "shared enrollment token for agents")
+	adminUsername := flag.String("admin-username", envOrDefault("CLOUDFIREWALL_ADMIN_USERNAME", "admin"), "admin username for frontend login")
+	adminPassword := flag.String("admin-password", envOrDefault("CLOUDFIREWALL_ADMIN_PASSWORD", "admin"), "admin password for frontend login")
+	apiKey := flag.String("api-key", envOrDefault("CLOUDFIREWALL_API_KEY", "dev-api-key"), "API key for programmatic API access")
 	heartbeatTimeout := flag.Duration("heartbeat-timeout", 30*time.Second, "duration before an agent is considered offline")
 	heartbeatInterval := flag.Duration("heartbeat-interval", 10*time.Second, "suggested heartbeat interval returned to agents")
 	configPollInterval := flag.Duration("config-poll-interval", 15*time.Second, "suggested config poll interval returned to agents")
@@ -30,6 +33,11 @@ func main() {
 
 	store := service.NewStore(
 		[]string{*enrollmentToken},
+		service.SecurityConfig{
+			AdminUsername: *adminUsername,
+			AdminPassword: *adminPassword,
+			APIKey:        *apiKey,
+		},
 		config,
 		*heartbeatTimeout,
 		*heartbeatInterval,
