@@ -1,3 +1,7 @@
 # Frontend
 
-This workspace is reserved for the React frontend. The initial scaffold uses Vite with TypeScript so UI work can start without changing the repository shape again.
+This workspace contains the React/Vite dashboard for agent fleet status.
+
+- polls the API for enrolled agents
+- shows online and offline state from recent heartbeats
+- shows the firewall version each agent reports as active

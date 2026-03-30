@@ -1,4 +1,4 @@
-.PHONY: fmt vet test build cli agent frontend
+.PHONY: fmt vet test build cli agent api frontend
 
 fmt:
 	gofmt -w ./apps
@@ -17,6 +17,9 @@ cli:
 
 agent:
 	mkdir -p bin && go build -o bin/agent ./apps/agent/cmd/agent
+
+api:
+	mkdir -p bin && go build -o bin/api ./apps/api/cmd/api
 
 frontend:
 	cd apps/frontend && npm install && npm run build

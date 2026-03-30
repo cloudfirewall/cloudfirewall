@@ -1,3 +1,8 @@
 # Agent
 
-The agent app is the host-side runtime entrypoint. It is kept separate from the engine so agent-specific orchestration can grow without mixing concerns into the policy compiler.
+The agent app is the host-side runtime entrypoint.
+
+- enrolls with the API using a shared enrollment token
+- polls the API for the latest nftables ruleset
+- sends periodic heartbeats with its current firewall version
+- can run in dry-run mode for local development
