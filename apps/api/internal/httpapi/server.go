@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 
@@ -42,6 +43,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /openapi.json", s.handleOpenAPI)
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 	s.mux.HandleFunc("POST /api/v1/admin/login", s.handleAdminLogin)
+	s.mux.HandleFunc("POST /api/v1/enrollment-tokens", s.handleCreateEnrollmentToken)
 	s.mux.HandleFunc("POST /api/v1/enroll", s.handleEnroll)
 	s.mux.HandleFunc("POST /api/v1/agents/self/heartbeat", s.handleHeartbeat)
 	s.mux.HandleFunc("GET /api/v1/agents/self/config", s.handleConfig)
@@ -99,6 +101,29 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleCreateEnrollmentToken(w http.ResponseWriter, r *http.Request) {
+	if err := s.authorizeAdminRequest(r); err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	var req types.CreateEnrollmentTokenRequest
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+	}
+
+	resp, err := s.store.CreateEnrollmentToken(req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {

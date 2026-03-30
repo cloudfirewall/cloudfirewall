@@ -15,7 +15,6 @@ import (
 
 func TestEnrollHeartbeatListAndConfig(t *testing.T) {
 	store := service.NewStore(
-		[]string{"dev-enrollment-token"},
 		service.SecurityConfig{
 			AdminUsername: "admin",
 			AdminPassword: "secret",
@@ -32,8 +31,12 @@ func TestEnrollHeartbeatListAndConfig(t *testing.T) {
 	)
 	server := httpapi.NewServer(store)
 
+	tokenResp := doJSON[types.CreateEnrollmentTokenResponse](t, server, http.MethodPost, "/api/v1/enrollment-tokens", "", types.CreateEnrollmentTokenRequest{
+		TTLSeconds: 300,
+	}, http.StatusCreated, withAPIKey())
+
 	enrollReq := types.EnrollAgentRequest{
-		EnrollmentToken: "dev-enrollment-token",
+		EnrollmentToken: tokenResp.Token,
 		AgentName:       "edge-01",
 		Hostname:        "edge-01.local",
 		AgentVersion:    "1.0.0",
@@ -74,7 +77,6 @@ func TestEnrollHeartbeatListAndConfig(t *testing.T) {
 
 func TestSwaggerAndOpenAPIEndpoints(t *testing.T) {
 	store := service.NewStore(
-		[]string{"dev-enrollment-token"},
 		service.SecurityConfig{
 			AdminUsername: "admin",
 			AdminPassword: "secret",
@@ -114,11 +116,13 @@ func TestSwaggerAndOpenAPIEndpoints(t *testing.T) {
 	if _, ok := paths["/api/v1/admin/login"]; !ok {
 		t.Fatalf("admin login path missing from spec")
 	}
+	if _, ok := paths["/api/v1/enrollment-tokens"]; !ok {
+		t.Fatalf("enrollment token path missing from spec")
+	}
 }
 
 func TestListAgentsAcceptsAPIKey(t *testing.T) {
 	store := service.NewStore(
-		[]string{"dev-enrollment-token"},
 		service.SecurityConfig{
 			AdminUsername: "admin",
 			AdminPassword: "secret",
@@ -131,20 +135,49 @@ func TestListAgentsAcceptsAPIKey(t *testing.T) {
 	)
 	server := httpapi.NewServer(store)
 
-	req, err := http.NewRequest(http.MethodGet, "/api/v1/agents", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("X-API-Key", "dev-api-key")
+	doJSON[types.ListAgentsResponse](t, server, http.MethodGet, "/api/v1/agents", "", nil, http.StatusOK, withAPIKey())
+}
 
-	recorder := httptest.NewRecorder()
-	server.ServeHTTP(recorder, req)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("unexpected status %d", recorder.Code)
+func TestEnrollmentTokenIsOneTimeUse(t *testing.T) {
+	store := service.NewStore(
+		service.SecurityConfig{
+			AdminUsername: "admin",
+			AdminPassword: "secret",
+			APIKey:        "dev-api-key",
+		},
+		service.FirewallConfig{},
+		30*time.Second,
+		10*time.Second,
+		15*time.Second,
+	)
+	server := httpapi.NewServer(store)
+
+	tokenResp := doJSON[types.CreateEnrollmentTokenResponse](t, server, http.MethodPost, "/api/v1/enrollment-tokens", "", nil, http.StatusCreated, withAPIKey())
+
+	doJSON[types.EnrollAgentResponse](t, server, http.MethodPost, "/api/v1/enroll", "", types.EnrollAgentRequest{
+		EnrollmentToken: tokenResp.Token,
+		AgentName:       "edge-01",
+		Hostname:        "edge-01.local",
+		AgentVersion:    "1.0.0",
+	}, http.StatusCreated)
+
+	doJSON[map[string]string](t, server, http.MethodPost, "/api/v1/enroll", "", types.EnrollAgentRequest{
+		EnrollmentToken: tokenResp.Token,
+		AgentName:       "edge-02",
+		Hostname:        "edge-02.local",
+		AgentVersion:    "1.0.0",
+	}, http.StatusUnauthorized)
+}
+
+type requestOption func(*http.Request)
+
+func withAPIKey() requestOption {
+	return func(req *http.Request) {
+		req.Header.Set("X-API-Key", "dev-api-key")
 	}
 }
 
-func doJSON[T any](t *testing.T, handler http.Handler, method, path, authToken string, payload any, wantStatus int) T {
+func doJSON[T any](t *testing.T, handler http.Handler, method, path, authToken string, payload any, wantStatus int, opts ...requestOption) T {
 	t.Helper()
 
 	var body []byte
@@ -165,6 +198,9 @@ func doJSON[T any](t *testing.T, handler http.Handler, method, path, authToken s
 	}
 	if authToken != "" {
 		req.Header.Set("Authorization", "Bearer "+authToken)
+	}
+	for _, opt := range opts {
+		opt(req)
 	}
 
 	recorder := httptest.NewRecorder()

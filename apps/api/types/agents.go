@@ -7,6 +7,16 @@ type EnrollAgentRequest struct {
 	AgentVersion    string `json:"agentVersion"`
 }
 
+type CreateEnrollmentTokenRequest struct {
+	TTLSeconds int `json:"ttlSeconds,omitempty"`
+}
+
+type CreateEnrollmentTokenResponse struct {
+	Token     string `json:"token"`
+	TokenID   string `json:"tokenId"`
+	ExpiresAt string `json:"expiresAt"`
+}
+
 type AdminLoginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`

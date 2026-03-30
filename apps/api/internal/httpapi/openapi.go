@@ -27,15 +27,17 @@ func openAPISpec() map[string]any {
 				},
 			},
 			"schemas": map[string]any{
-				"AdminLoginRequest":      schemaFor(types.AdminLoginRequest{}),
-				"AdminLoginResponse":     schemaFor(types.AdminLoginResponse{}),
-				"EnrollAgentRequest":     schemaFor(types.EnrollAgentRequest{}),
-				"EnrollAgentResponse":    schemaFor(types.EnrollAgentResponse{}),
-				"AgentHeartbeatRequest":  schemaFor(types.AgentHeartbeatRequest{}),
-				"AgentHeartbeatResponse": schemaFor(types.AgentHeartbeatResponse{}),
-				"AgentConfigResponse":    schemaFor(types.AgentConfigResponse{}),
-				"AgentSummary":           schemaFor(types.AgentSummary{}),
-				"ListAgentsResponse":     schemaFor(types.ListAgentsResponse{}),
+				"AdminLoginRequest":             schemaFor(types.AdminLoginRequest{}),
+				"AdminLoginResponse":            schemaFor(types.AdminLoginResponse{}),
+				"CreateEnrollmentTokenRequest":  schemaFor(types.CreateEnrollmentTokenRequest{}),
+				"CreateEnrollmentTokenResponse": schemaFor(types.CreateEnrollmentTokenResponse{}),
+				"EnrollAgentRequest":            schemaFor(types.EnrollAgentRequest{}),
+				"EnrollAgentResponse":           schemaFor(types.EnrollAgentResponse{}),
+				"AgentHeartbeatRequest":         schemaFor(types.AgentHeartbeatRequest{}),
+				"AgentHeartbeatResponse":        schemaFor(types.AgentHeartbeatResponse{}),
+				"AgentConfigResponse":           schemaFor(types.AgentConfigResponse{}),
+				"AgentSummary":                  schemaFor(types.AgentSummary{}),
+				"ListAgentsResponse":            schemaFor(types.ListAgentsResponse{}),
 				"ErrorResponse": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -64,6 +66,20 @@ func openAPISpec() map[string]any {
 					"responses": map[string]any{
 						"200": jsonResponse("AdminLoginResponse", "Admin session token"),
 						"401": jsonResponse("ErrorResponse", "Invalid admin credentials"),
+					},
+				},
+			},
+			"/api/v1/enrollment-tokens": map[string]any{
+				"post": map[string]any{
+					"summary": "Create a one-time signed enrollment token",
+					"security": []map[string]any{
+						{"bearerAuth": []any{}},
+						{"apiKeyAuth": []any{}},
+					},
+					"requestBody": jsonRequestBody("CreateEnrollmentTokenRequest"),
+					"responses": map[string]any{
+						"201": jsonResponse("CreateEnrollmentTokenResponse", "New enrollment token"),
+						"401": jsonResponse("ErrorResponse", "Missing or invalid admin bearer token or API key"),
 					},
 				},
 			},
@@ -157,6 +173,16 @@ func schemaFor(v any) map[string]any {
 	case types.AdminLoginResponse:
 		return objectSchema(
 			stringField("authToken"),
+		)
+	case types.CreateEnrollmentTokenRequest:
+		return objectSchema(
+			intField("ttlSeconds"),
+		)
+	case types.CreateEnrollmentTokenResponse:
+		return objectSchema(
+			stringField("token"),
+			stringField("tokenId"),
+			stringField("expiresAt"),
 		)
 	case types.EnrollAgentRequest:
 		return objectSchema(

@@ -178,6 +178,32 @@ a {
 	color: #fecaca;
 }
 
+.token-card {
+	margin-bottom: 18px;
+	padding: 20px;
+	border-radius: 24px;
+	border: 1px solid rgba(251, 191, 36, 0.18);
+	background: linear-gradient(180deg, rgba(120, 53, 15, 0.22), rgba(15, 23, 42, 0.82));
+}
+
+.token-card-header h2 {
+	margin: 0 0 6px;
+}
+
+.token-card-header p {
+	margin: 0 0 14px;
+	color: #cbd5e1;
+}
+
+.token-value {
+	display: block;
+	padding: 14px 16px;
+	border-radius: 18px;
+	background: rgba(2, 6, 23, 0.75);
+	color: #fde68a;
+	overflow-wrap: anywhere;
+}
+
 .agent-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));

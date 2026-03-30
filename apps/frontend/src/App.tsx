@@ -15,6 +15,12 @@ type ListAgentsResponse = {
 	agents: AgentSummary[];
 };
 
+type CreateEnrollmentTokenResponse = {
+	token: string;
+	tokenId: string;
+	expiresAt: string;
+};
+
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const POLL_INTERVAL_MS = 5000;
 const TOKEN_KEY = "cloudfirewall_admin_token";
@@ -29,6 +35,9 @@ export default function App() {
 	const [lastUpdated, setLastUpdated] = useState("");
 	const [authError, setAuthError] = useState("");
 	const [isAuthenticating, setIsAuthenticating] = useState(false);
+	const [generatedToken, setGeneratedToken] = useState<CreateEnrollmentTokenResponse | null>(null);
+	const [tokenError, setTokenError] = useState("");
+	const [isCreatingToken, setIsCreatingToken] = useState(false);
 
 	useEffect(() => {
 		if (!authToken) {
@@ -131,6 +140,38 @@ export default function App() {
 		setError("");
 	}
 
+	async function handleCreateEnrollmentToken() {
+		setIsCreatingToken(true);
+		setTokenError("");
+
+		try {
+			const response = await fetch(`${API_BASE}/api/v1/enrollment-tokens`, {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${authToken}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ ttlSeconds: 600 }),
+			});
+
+			if (!response.ok) {
+				if (response.status === 401) {
+					window.localStorage.removeItem(TOKEN_KEY);
+					setAuthToken("");
+					throw new Error("Session expired. Please log in again.");
+				}
+				throw new Error(`Token creation failed with status ${response.status}`);
+			}
+
+			const payload = (await response.json()) as CreateEnrollmentTokenResponse;
+			setGeneratedToken(payload);
+		} catch (createError) {
+			setTokenError(createError instanceof Error ? createError.message : "Failed to create token");
+		} finally {
+			setIsCreatingToken(false);
+		}
+	}
+
 	if (!authToken) {
 		return (
 			<div className="app-shell">
@@ -196,6 +237,9 @@ export default function App() {
 				<div className="toolbar">
 					<div className="toolbar-actions">
 						<button onClick={() => window.location.reload()}>Refresh</button>
+						<button onClick={() => void handleCreateEnrollmentToken()} disabled={isCreatingToken}>
+							{isCreatingToken ? "Generating..." : "Generate Enrollment Token"}
+						</button>
 						<button className="secondary-button" onClick={handleLogout}>
 							Logout
 						</button>
@@ -204,11 +248,24 @@ export default function App() {
 				</div>
 
 				{error ? <div className="error-banner">Unable to load agents: {error}</div> : null}
+				{tokenError ? <div className="error-banner">Unable to create enrollment token: {tokenError}</div> : null}
+
+				{generatedToken ? (
+					<section className="token-card">
+						<div className="token-card-header">
+							<div>
+								<h2>Latest enrollment token</h2>
+								<p>One-time token for a new agent. Expires at {formatTime(generatedToken.expiresAt)}.</p>
+							</div>
+						</div>
+						<code className="token-value">{generatedToken.token}</code>
+					</section>
+				) : null}
 
 				{agents.length === 0 && !isLoading ? (
 					<div className="empty-state">
-						No agents have enrolled yet. Start the API, then run an agent with an enrollment
-						token to populate this dashboard.
+						No agents have enrolled yet. Generate an enrollment token here, then run an agent
+						with that one-time token to populate this dashboard.
 					</div>
 				) : null}
 

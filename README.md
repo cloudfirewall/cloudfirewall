@@ -42,10 +42,11 @@ make agent
 ## Agent Flow
 
 1. Agents enroll with `POST /api/v1/enroll` using a shared enrollment token.
-2. The API returns an agent auth token plus suggested heartbeat and config poll intervals.
-3. Agents pull `GET /api/v1/agents/self/config` to get the current nftables ruleset and config version.
-4. Agents send `POST /api/v1/agents/self/heartbeat` so the API can mark them online and record the firewall version they are running.
-5. The frontend reads `GET /api/v1/agents` to show fleet status.
+2. Admin users log into the frontend and create one-time signed enrollment tokens with `POST /api/v1/enrollment-tokens`.
+3. The API verifies the enrollment token signature and one-time-use status, then returns an agent auth token plus suggested heartbeat and config poll intervals.
+4. Agents pull `GET /api/v1/agents/self/config` to get the current nftables ruleset and config version.
+5. Agents send `POST /api/v1/agents/self/heartbeat` so the API can mark them online and record the firewall version they are running.
+6. The frontend reads `GET /api/v1/agents` to show fleet status.
 
 ## Run The Stack
 
@@ -53,7 +54,6 @@ Start the API:
 
 ```bash
 ./bin/api \
-  -enrollment-token dev-enrollment-token \
   -admin-username admin \
   -admin-password admin \
   -api-key dev-api-key
@@ -65,14 +65,14 @@ Open the API docs:
 http://localhost:8080/swagger
 ```
 
-Frontend login uses the configured admin username and password. Programmatic API access can use the configured `X-API-Key` header.
+Frontend login uses the configured admin username and password. Programmatic API access can use the configured `X-API-Key` header. Enrollment tokens are now created from the frontend after login and are signed, expiring, and single-use.
 
-Enroll and run an agent once in dry-run mode:
+Log into the frontend, generate an enrollment token, then run an agent once in dry-run mode:
 
 ```bash
 ./bin/agent \
   -api-url http://localhost:8080 \
-  -enrollment-token dev-enrollment-token \
+  -enrollment-token <generated-enrollment-token> \
   -name demo-agent \
   -once \
   -dry-run

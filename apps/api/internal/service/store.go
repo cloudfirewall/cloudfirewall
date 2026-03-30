@@ -1,8 +1,12 @@
 package service
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -40,9 +44,22 @@ type AgentRecord struct {
 	LastSeenAt      time.Time
 }
 
+type EnrollmentTokenClaims struct {
+	ID  string `json:"id"`
+	Exp int64  `json:"exp"`
+	Iat int64  `json:"iat"`
+}
+
+type EnrollmentTokenRecord struct {
+	ID        string
+	IssuedAt  time.Time
+	ExpiresAt time.Time
+	UsedAt    time.Time
+}
+
 type Store struct {
 	mu                 sync.RWMutex
-	enrollmentTokens   map[string]struct{}
+	enrollmentTokens   map[string]*EnrollmentTokenRecord
 	agents             map[string]*AgentRecord
 	agentIDsByToken    map[string]string
 	adminSessions      map[string]time.Time
@@ -53,16 +70,9 @@ type Store struct {
 	configPollInterval time.Duration
 }
 
-func NewStore(tokens []string, security SecurityConfig, config FirewallConfig, heartbeatTimeout, heartbeatInterval, configPollInterval time.Duration) *Store {
-	tokenSet := make(map[string]struct{}, len(tokens))
-	for _, token := range tokens {
-		if trimmed := strings.TrimSpace(token); trimmed != "" {
-			tokenSet[trimmed] = struct{}{}
-		}
-	}
-
+func NewStore(security SecurityConfig, config FirewallConfig, heartbeatTimeout, heartbeatInterval, configPollInterval time.Duration) *Store {
 	return &Store{
-		enrollmentTokens:   tokenSet,
+		enrollmentTokens:   make(map[string]*EnrollmentTokenRecord),
 		agents:             make(map[string]*AgentRecord),
 		agentIDsByToken:    make(map[string]string),
 		adminSessions:      make(map[string]time.Time),
@@ -72,6 +82,42 @@ func NewStore(tokens []string, security SecurityConfig, config FirewallConfig, h
 		heartbeatInterval:  heartbeatInterval,
 		configPollInterval: configPollInterval,
 	}
+}
+
+func (s *Store) CreateEnrollmentToken(req types.CreateEnrollmentTokenRequest) (types.CreateEnrollmentTokenResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ttl := time.Duration(req.TTLSeconds) * time.Second
+	if ttl <= 0 {
+		ttl = 10 * time.Minute
+	}
+	if ttl > 24*time.Hour {
+		ttl = 24 * time.Hour
+	}
+
+	now := time.Now().UTC()
+	record := &EnrollmentTokenRecord{
+		ID:        "enr_" + randomHex(8),
+		IssuedAt:  now,
+		ExpiresAt: now.Add(ttl),
+	}
+	s.enrollmentTokens[record.ID] = record
+
+	token, err := s.signEnrollmentToken(EnrollmentTokenClaims{
+		ID:  record.ID,
+		Exp: record.ExpiresAt.Unix(),
+		Iat: record.IssuedAt.Unix(),
+	})
+	if err != nil {
+		return types.CreateEnrollmentTokenResponse{}, err
+	}
+
+	return types.CreateEnrollmentTokenResponse{
+		Token:     token,
+		TokenID:   record.ID,
+		ExpiresAt: record.ExpiresAt.Format(time.RFC3339),
+	}, nil
 }
 
 func (s *Store) AdminLogin(req types.AdminLoginRequest) (types.AdminLoginResponse, error) {
@@ -91,11 +137,18 @@ func (s *Store) Enroll(req types.EnrollAgentRequest) (types.EnrollAgentResponse,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.enrollmentTokens[strings.TrimSpace(req.EnrollmentToken)]; !ok {
+	now := time.Now().UTC()
+	claims, err := s.verifyEnrollmentToken(strings.TrimSpace(req.EnrollmentToken))
+	if err != nil {
 		return types.EnrollAgentResponse{}, ErrInvalidEnrollmentToken
 	}
 
-	now := time.Now().UTC()
+	tokenRecord, ok := s.enrollmentTokens[claims.ID]
+	if !ok || tokenRecord.ExpiresAt.Before(now) || !tokenRecord.UsedAt.IsZero() {
+		return types.EnrollAgentResponse{}, ErrInvalidEnrollmentToken
+	}
+	tokenRecord.UsedAt = now
+
 	agentID := "agt-" + randomHex(8)
 	authToken := "cfw_" + randomHex(24)
 	name := strings.TrimSpace(req.AgentName)
@@ -106,7 +159,7 @@ func (s *Store) Enroll(req types.EnrollAgentRequest) (types.EnrollAgentResponse,
 		name = agentID
 	}
 
-	record := &AgentRecord{
+	agentRecord := &AgentRecord{
 		ID:           agentID,
 		AuthToken:    authToken,
 		Name:         name,
@@ -115,7 +168,7 @@ func (s *Store) Enroll(req types.EnrollAgentRequest) (types.EnrollAgentResponse,
 		EnrolledAt:   now,
 	}
 
-	s.agents[agentID] = record
+	s.agents[agentID] = agentRecord
 	s.agentIDsByToken[authToken] = agentID
 
 	return types.EnrollAgentResponse{
@@ -184,6 +237,51 @@ func (s *Store) AuthorizeAdminSession(authToken string) error {
 		return ErrUnauthorized
 	}
 	return nil
+}
+
+func (s *Store) signEnrollmentToken(claims EnrollmentTokenClaims) (string, error) {
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		return "", err
+	}
+
+	encodedPayload := base64.RawURLEncoding.EncodeToString(payload)
+	mac := hmac.New(sha256.New, []byte(s.security.APIKey))
+	_, _ = mac.Write([]byte(encodedPayload))
+	signature := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return encodedPayload + "." + signature, nil
+}
+
+func (s *Store) verifyEnrollmentToken(token string) (EnrollmentTokenClaims, error) {
+	var claims EnrollmentTokenClaims
+
+	parts := strings.Split(token, ".")
+	if len(parts) != 2 {
+		return claims, ErrInvalidEnrollmentToken
+	}
+
+	mac := hmac.New(sha256.New, []byte(s.security.APIKey))
+	_, _ = mac.Write([]byte(parts[0]))
+	expected := mac.Sum(nil)
+
+	provided, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil || !hmac.Equal(expected, provided) {
+		return claims, ErrInvalidEnrollmentToken
+	}
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return claims, ErrInvalidEnrollmentToken
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return claims, ErrInvalidEnrollmentToken
+	}
+
+	if claims.ID == "" || claims.Exp <= time.Now().UTC().Unix() {
+		return claims, ErrInvalidEnrollmentToken
+	}
+
+	return claims, nil
 }
 
 func (s *Store) ListAgents() types.ListAgentsResponse {
