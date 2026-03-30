@@ -17,15 +17,18 @@ make test-e2e
 
 Current validation:
 
-- API starts
-- frontend-style enrollment token issuance path works
-- agent enrolls with the generated token
-- agent fetches config, applies nftables in-container, heartbeats, and shows as online
-- probe-to-agent traffic on port `443` succeeds
-- probe-to-agent traffic on port `22` is blocked by the nftables policy
+- `public-web-server` scenario:
+  - API starts
+  - frontend-style enrollment token issuance path works
+  - agent enrolls with the generated token
+  - agent fetches config, applies nftables in-container, heartbeats, and shows as online
+  - probe-to-agent traffic on port `443` succeeds
+  - probe-to-agent traffic on port `22` is blocked by the nftables policy
+- `risky-public-ssh` scenario:
+  - probe-to-agent traffic on port `22` succeeds
+  - probe-to-agent traffic on port `443` is blocked by the nftables policy
 
 Planned next steps:
 
-- add probe-driven traffic tests for allowed and blocked flows
 - add multiple agent scenarios
 - add CI gating behind an opt-in privileged job

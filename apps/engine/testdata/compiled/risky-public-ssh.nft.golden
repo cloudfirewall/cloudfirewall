@@ -1,0 +1,20 @@
+# cloudfirewall generated artifact
+# policy_id=policy-risky-public-ssh
+# version=1
+# name=risky-public-ssh
+
+table inet cloudfirewall {
+  chain input {
+    type filter hook input priority 0; policy accept;
+    iifname "lo" accept comment "cfw:system=loopback"
+    ct state established,related accept comment "cfw:system=established-related"
+    tcp dport 22 accept comment "cfw:rule=rule-ssh-public;policy=policy-risky-public-ssh;version=1"
+    drop comment "cfw:default=inbound"
+  }
+  chain output {
+    type filter hook output priority 0; policy accept;
+    oifname "lo" accept comment "cfw:system=loopback"
+    ct state established,related accept comment "cfw:system=established-related"
+    accept comment "cfw:default=outbound"
+  }
+}

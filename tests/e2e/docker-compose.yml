@@ -9,6 +9,9 @@ services:
       CLOUDFIREWALL_ADMIN_USERNAME: admin
       CLOUDFIREWALL_ADMIN_PASSWORD: admin
       CLOUDFIREWALL_API_KEY: dev-api-key
+    command:
+      - -config
+      - ${API_CONFIG_PATH:-/app/compiled/public-web-server.nft.golden}
     ports:
       - "8080:8080"
     healthcheck:

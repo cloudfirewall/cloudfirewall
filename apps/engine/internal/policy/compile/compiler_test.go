@@ -13,7 +13,17 @@ import (
 )
 
 func TestCompilePublicWebServer(t *testing.T) {
-	authoring, err := fixture.LoadAuthoringPolicy("../../../testdata/policies/public-web-server.json")
+	testCompilePolicy(t, "public-web-server", "../../../testdata/policies/public-web-server.json", "../../../testdata/compiled/public-web-server.nft.golden")
+}
+
+func TestCompileRiskyPublicSSH(t *testing.T) {
+	testCompilePolicy(t, "risky-public-ssh", "../../../testdata/policies/risky-public-ssh.json", "../../../testdata/compiled/risky-public-ssh.nft.golden")
+}
+
+func testCompilePolicy(t *testing.T, name, policyPath, goldenPath string) {
+	t.Helper()
+
+	authoring, err := fixture.LoadAuthoringPolicy(policyPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,11 +51,11 @@ func TestCompilePublicWebServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	golden, err := os.ReadFile("../../../testdata/compiled/public-web-server.nft.golden")
+	golden, err := os.ReadFile(goldenPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.TrimSpace(compiled.Content) != strings.TrimSpace(string(golden)) {
-		t.Fatalf("compiled output mismatch\nexpected:\n%s\nactual:\n%s", string(golden), compiled.Content)
+		t.Fatalf("%s compiled output mismatch\nexpected:\n%s\nactual:\n%s", name, string(golden), compiled.Content)
 	}
 }

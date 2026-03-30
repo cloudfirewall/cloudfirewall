@@ -10,6 +10,6 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates wget
 WORKDIR /app
 COPY --from=builder /out/api /usr/local/bin/api
-COPY apps/engine/testdata/compiled/public-web-server.nft.golden /app/public-web-server.nft
+COPY apps/engine/testdata/compiled /app/compiled
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/api", "-addr", ":8080", "-config", "/app/public-web-server.nft"]
+ENTRYPOINT ["/usr/local/bin/api", "-addr", ":8080"]
