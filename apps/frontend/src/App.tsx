@@ -339,15 +339,6 @@ export default function App() {
 		navigateTo(configPath(config.id, "overview"));
 	}
 
-	function openRuleDetails(index: number) {
-		setSelectedRuleIndex(index);
-		const rule = policyEditor.rules[index];
-		if (!selectedConfigID || !rule) {
-			return;
-		}
-		navigateTo(rulePath(selectedConfigID, rule.id));
-	}
-
 	function startNewConfig() {
 		navigateTo("/firewall-configs/new");
 	}
@@ -595,7 +586,7 @@ export default function App() {
 							<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
 						</label>
 						<button type="submit" className="primary-button" disabled={isAuthenticating}>
-							{isAuthenticating ? "Signing in..." : "Login"}
+							{isAuthenticating ? "Signing in..." : "Sign in"}
 						</button>
 						{authError ? <div className="notice error">{authError}</div> : null}
 					</form>
@@ -610,7 +601,7 @@ export default function App() {
 				<div className="brand-block">
 					<p className="eyebrow">Cloudfirewall</p>
 					<h1>Admin Portal</h1>
-					<p>Policy-driven firewall operations for agents and fleet rollouts.</p>
+					<p>Manage firewall policies and monitor enrolled agents across your fleet.</p>
 				</div>
 
 				<nav className="sidebar-nav" aria-label="Primary">
@@ -638,8 +629,8 @@ export default function App() {
 						<strong>{onlineAgents}</strong>
 					</div>
 					<div className="sidebar-stat">
-						<span>Last refresh</span>
-						<strong>{lastUpdated || "Waiting"}</strong>
+						<span>Updated</span>
+						<strong>{lastUpdated || "—"}</strong>
 					</div>
 				</div>
 			</aside>
@@ -647,24 +638,24 @@ export default function App() {
 			<main className="main-stage">
 				<header className="topbar">
 					<div>
-						<p className="section-kicker">{activeView === "agents" ? "Fleet" : "Firewall authoring"}</p>
+						<p className="section-kicker">{activeView === "agents" ? "Fleet" : "Policies"}</p>
 						<h2>
 							{activeView === "agents"
 								? "Agents"
 								: configScreen === "list"
 									? "Firewall Policies"
 									: configScreen === "details"
-										? policyEditor.name || "Firewall Policy Details"
+										? policyEditor.name || "Firewall Policy"
 										: ruleDetailTitle(selectedRule)}
 						</h2>
 						<p className="section-copy">
 							{activeView === "agents"
-								? "Review connected agents, heartbeat state, and create one-time enrollment tokens for new installs."
+								? "Monitor connected agents and issue enrollment tokens for new installs."
 								: configScreen === "list"
-									? "Browse saved firewall policies and choose the one you want to inspect."
+									? "Select a policy to review its rules, check its status, or apply it to the fleet."
 									: configScreen === "details"
-										? "Review one firewall policy at a time and switch between overview, rules, and translated output."
-										: "Edit one rule at a time with focused actions for saving or deleting changes."}
+										? "Manage this policy's settings, rules, and generated nftables output."
+										: "Configure this rule's traffic direction, source, protocol, and ports."}
 						</p>
 					</div>
 					<div className="topbar-actions">
@@ -678,11 +669,11 @@ export default function App() {
 								onClick={() => void handleCreateEnrollmentToken()}
 								disabled={isCreatingToken}
 							>
-								{isCreatingToken ? "Creating..." : "Add Agent Enrollment"}
+								{isCreatingToken ? "Creating..." : "New Token"}
 							</button>
 						) : (
 							<button type="button" className="primary-button" onClick={startNewConfig}>
-								Add Firewall Policy
+								New Policy
 							</button>
 						)}
 						<button type="button" className="ghost-button" onClick={handleLogout}>
@@ -718,7 +709,7 @@ export default function App() {
 
 								{agents.length === 0 && !isLoading ? (
 									<div className="empty-state">
-										No agents have enrolled yet. Generate an enrollment token and install the agent on a server to populate this list.
+										No agents enrolled. Generate a token and run the installer on a server to get started.
 									</div>
 								) : null}
 
@@ -728,7 +719,7 @@ export default function App() {
 											<div className="agent-row-main">
 												<div className="identity-block">
 													<h4>{agent.name}</h4>
-													<p>{agent.hostname || "hostname pending"}</p>
+													<p>{agent.hostname || "no hostname"}</p>
 												</div>
 												<span className={`status-chip ${agent.online ? "online" : "offline"}`}>
 													{agent.online ? "Online" : "Offline"}
@@ -737,11 +728,11 @@ export default function App() {
 											<div className="agent-row-meta">
 												<div>
 													<span>Agent version</span>
-													<strong>{agent.agentVersion || "unknown"}</strong>
+													<strong>{agent.agentVersion || "—"}</strong>
 												</div>
 												<div>
 													<span>Firewall version</span>
-													<strong>{agent.firewallVersion || "not applied"}</strong>
+													<strong>{agent.firewallVersion || "none"}</strong>
 												</div>
 												<div>
 													<span>Last heartbeat</span>
@@ -761,8 +752,8 @@ export default function App() {
 						<aside className="rail-stack">
 							<section className="surface rail-card">
 								<p className="section-kicker">Enrollment</p>
-								<h3>New agent token</h3>
-								<p className="muted-copy">Issue a one-time enrollment token from the dashboard, then use it in the installer or agent CLI.</p>
+								<h3>New Enrollment Token</h3>
+								<p className="muted-copy">Generate a one-time token to enroll a new agent. Tokens expire after 10 minutes.</p>
 								{generatedToken ? (
 									<div className="token-box">
 										<div className="copy-row">
@@ -775,17 +766,17 @@ export default function App() {
 										<span>Expires {formatTime(generatedToken.expiresAt)}</span>
 									</div>
 								) : (
-									<div className="empty-state compact">No token generated yet.</div>
+									<div className="empty-state compact">No token yet. Click "New Token" to generate one.</div>
 								)}
 							</section>
 
 							<section className="surface rail-card">
 								<p className="section-kicker">Install</p>
-								<h3>One-line agent setup</h3>
+								<h3>Quick Install</h3>
 								<div className="copy-row">
-									<span className="muted-copy">The latest enrollment token is injected into the install command automatically.</span>
+									<span className="muted-copy">Run this on the target server to install and enroll the agent.</span>
 									<button type="button" className="ghost-button copy-button" onClick={() => void copyToClipboard(agentSetupScript, "setup-script")}>
-										{copiedItem === "setup-script" ? "Copied" : "Copy setup"}
+										{copiedItem === "setup-script" ? "Copied" : "Copy"}
 									</button>
 								</div>
 								<pre className="code-preview">{agentSetupScript}</pre>
@@ -800,7 +791,7 @@ export default function App() {
 									<div>
 										<p className="section-kicker">Library</p>
 										<h3>All firewall policies</h3>
-										<p className="muted-copy">Choose a policy to inspect it, update overview settings, or drill into its rules.</p>
+										<p className="muted-copy">Select a policy to review its rules, check its status, or apply it to the fleet.</p>
 									</div>
 								</div>
 
@@ -819,7 +810,7 @@ export default function App() {
 											</div>
 											<div className="config-list-meta">
 												<span className={`status-chip ${config.isActive ? "online" : "offline"}`}>
-													{config.isActive ? "Active" : "Saved"}
+													{config.isActive ? "Applied" : "Saved"}
 												</span>
 												<span className="config-version-badge">{config.version}</span>
 											</div>
@@ -853,7 +844,7 @@ export default function App() {
 										Firewall Policies
 									</button>
 									<span>/</span>
-									<span>{policyEditor.name || "New config"}</span>
+									<span>{policyEditor.name || "New Policy"}</span>
 								</nav>
 
 								<div className="firewall-page-header">
@@ -895,7 +886,7 @@ export default function App() {
 									</div>
 									<div className="firewall-page-stats">
 										<span>Rules {policyEditor.rules.length}</span>
-										{selectedConfig ? <span>{selectedConfig.isActive ? "Applied to fleet" : "Draft"}</span> : null}
+										{selectedConfig ? <span>{selectedConfig.isActive ? "Active" : "Draft"}</span> : null}
 										{editorVersion ? <span>v{editorVersion}</span> : null}
 									</div>
 									<div className="detail-tabs detail-tabs-line" role="tablist" aria-label="Firewall config details">
@@ -931,7 +922,7 @@ export default function App() {
 
 								{selectedConfig && !selectedConfig.policy ? (
 									<div className="notice neutral">
-										This config was loaded from a legacy raw firewall definition. Create a new policy-based config to manage rules from the UI.
+										This config uses a legacy raw format. Create a new policy to manage rules from the UI.
 									</div>
 								) : null}
 
@@ -940,7 +931,7 @@ export default function App() {
 										<section className="tab-panel" role="tabpanel" aria-label="Overview">
 											<div className="tab-intro">
 												<h4>Overview</h4>
-												<p>Set the policy identity, defaults, and baseline safety behavior.</p>
+												<p>Name this policy and configure its default traffic handling behavior.</p>
 											</div>
 
 											<label className="field">
@@ -1213,15 +1204,15 @@ export default function App() {
 									) : (
 										<section className="tab-panel" role="tabpanel" aria-label="NFTables">
 											<div className="tab-intro">
-												<h4>Translated nftables config</h4>
-												<p>This is the generated nftables output derived from the rules defined in this firewall policy.</p>
+												<h4>nftables Output</h4>
+												<p>The nftables configuration generated from this policy's rules.</p>
 											</div>
 
 											{selectedConfig?.nftablesConfig ? (
 												<pre className="code-preview">{selectedConfig.nftablesConfig}</pre>
 											) : (
 												<div className="empty-state">
-													Save this firewall policy first to see the translated nftables output.
+													Save the policy first to see its generated nftables configuration.
 												</div>
 											)}
 										</section>
@@ -1259,7 +1250,7 @@ export default function App() {
 
 								<div className="policy-hero rule-hero">
 									<div className="title-block">
-										<p className="section-kicker">Rule Details</p>
+										<p className="section-kicker">Rule</p>
 										<h3>{ruleDetailTitle(selectedRule)}</h3>
 										{selectedRule ? (
 											<div className="policy-hero-meta">
@@ -1290,7 +1281,7 @@ export default function App() {
 										<div className="rule-editor-pane standalone">
 											<div className="tab-intro">
 												<h4>Rule settings</h4>
-												<p>Define who this rule applies to, which protocol and ports it covers, and how the firewall should respond.</p>
+												<p>Set the traffic direction, source, protocol, ports, and action for this rule.</p>
 											</div>
 											<div className="rule-grid">
 												<label className="field">
@@ -1363,7 +1354,7 @@ export default function App() {
 											</div>
 										</div>
 									) : (
-										<div className="empty-state">Select a rule from the rules tab before opening the rule details page.</div>
+										<div className="empty-state">No rule selected. Open a rule from the Rules tab.</div>
 									)}
 								</form>
 							</section>
@@ -1460,11 +1451,6 @@ function parseRoute(pathname: string): ParsedRoute {
 	return { view: "configs", screen: "list" };
 }
 
-function describeRule(rule: PolicyRuleDraft) {
-	const ports = formatPortLabel(rule);
-	const peer = formatPeerLabel(rule).toLowerCase();
-	return `${rule.protocol} ${ports} from ${peer}`;
-}
 
 function formatPeerLabel(rule: PolicyRuleDraft) {
 	if (rule.peerType === "CIDR") {
@@ -1505,7 +1491,7 @@ async function extractError(response: Response, fallback: string) {
 }
 
 function formatTime(value?: string) {
-	if (!value) return "waiting for first heartbeat";
+	if (!value) return "never";
 	const date = new Date(value);
 	if (Number.isNaN(date.getTime())) return value;
 	return date.toLocaleString();
