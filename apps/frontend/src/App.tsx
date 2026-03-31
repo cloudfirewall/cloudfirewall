@@ -290,8 +290,6 @@ export default function App() {
 	const configPageCount = Math.max(1, Math.ceil(configs.length / CONFIGS_PAGE_SIZE));
 	const pagedConfigs = configs.slice((configListPage - 1) * CONFIGS_PAGE_SIZE, configListPage * CONFIGS_PAGE_SIZE);
 	const agentSetupScript = buildAgentSetupScript(generatedToken?.token);
-	const inboundRules = policyEditor.rules.filter((rule) => rule.direction === "INBOUND");
-	const outboundRules = policyEditor.rules.filter((rule) => rule.direction === "OUTBOUND");
 
 	useEffect(() => {
 		if (configListPage > configPageCount) {
@@ -331,7 +329,7 @@ export default function App() {
 	}
 
 	function openConfigList() {
-		navigateTo("/firewall-configs");
+		navigateTo("/policies");
 	}
 
 	function openConfigDetails(config: FirewallConfigSummary) {
@@ -340,7 +338,7 @@ export default function App() {
 	}
 
 	function startNewConfig() {
-		navigateTo("/firewall-configs/new");
+		navigateTo("/policies/new");
 	}
 
 	async function authorizedFetch(path: string, init?: RequestInit) {
@@ -428,7 +426,7 @@ export default function App() {
 				setCopiedItem((current) => (current === key ? "" : current));
 			}, 2000);
 		} catch {
-			setTokenError("Copy failed. Please copy it manually.");
+			window.alert("Copy failed. Please copy it manually.");
 		}
 	}
 
@@ -499,18 +497,15 @@ export default function App() {
 
 	async function handleDeleteConfig() {
 		if (!selectedConfigID) return;
+		if (!window.confirm("Delete this policy? This cannot be undone.")) return;
 		setIsDeletingConfig(true);
 		setConfigError("");
 		try {
 			const response = await authorizedFetch(`/api/v1/policies/${selectedConfigID}`, { method: "DELETE" });
 			if (!response.ok) throw new Error(await extractError(response, "Failed to delete firewall policy"));
 			const nextConfigs = await reloadConfigs();
-			if (nextConfigs.length > 0) {
-				selectConfig(nextConfigs[0]);
-				navigateTo("/firewall-configs", true);
-			} else {
-				navigateTo("/firewall-configs", true);
-			}
+			if (nextConfigs.length > 0) selectConfig(nextConfigs[0]);
+			navigateTo("/policies", true);
 		} catch (deleteError) {
 			setConfigError(deleteError instanceof Error ? deleteError.message : "Failed to delete firewall policy");
 		} finally {
@@ -544,8 +539,11 @@ export default function App() {
 			}),
 		}));
 		setSelectedRuleIndex(nextIndex);
+		setConfigDetailTab("rules");
 		if (selectedConfigID) {
-			navigateTo(rulePath(selectedConfigID, nextRuleID));
+			navigateTo(configPath(selectedConfigID, "rules"), true);
+		} else {
+			navigateTo("/policies/new/rules", true);
 		}
 	}
 
@@ -563,7 +561,7 @@ export default function App() {
 		if (selectedConfigID) {
 			navigateTo(configPath(selectedConfigID, "rules"), true);
 		} else {
-			navigateTo("/firewall-configs/new/rules", true);
+			navigateTo("/policies/new/rules", true);
 		}
 	}
 
@@ -645,7 +643,7 @@ export default function App() {
 								: configScreen === "list"
 									? "Firewall Policies"
 									: configScreen === "details"
-										? policyEditor.name || "Firewall Policy"
+										? "Firewall Policy"
 										: ruleDetailTitle(selectedRule)}
 						</h2>
 						<p className="section-copy">
@@ -732,7 +730,7 @@ export default function App() {
 												</div>
 												<div>
 													<span>Firewall version</span>
-													<strong>{agent.firewallVersion || "none"}</strong>
+													<strong>{agent.firewallVersion || "—"}</strong>
 												</div>
 												<div>
 													<span>Last heartbeat</span>
@@ -766,7 +764,7 @@ export default function App() {
 										<span>Expires {formatTime(generatedToken.expiresAt)}</span>
 									</div>
 								) : (
-									<div className="empty-state compact">No token yet. Click "New Token" to generate one.</div>
+									<div className="empty-state compact">No token yet. Click "New Token" above to generate one.</div>
 								)}
 							</section>
 
@@ -809,7 +807,7 @@ export default function App() {
 												<small>Updated {formatTime(config.updatedAt)}</small>
 											</div>
 											<div className="config-list-meta">
-												<span className={`status-chip ${config.isActive ? "online" : "offline"}`}>
+												<span className={`fw-status-badge ${config.isActive ? "applied" : "saved"}`}>
 													{config.isActive ? "Applied" : "Saved"}
 												</span>
 												<span className="config-version-badge">{config.version}</span>
@@ -858,13 +856,8 @@ export default function App() {
 											) : null}
 										</div>
 										<div className="fw-header-actions">
-											{configDetailTab === "rules" ? (
-												<button type="button" className="primary-button fw-add-rule-btn" onClick={addRule}>
-													Add rule ↓
-												</button>
-											) : null}
-											<button type="submit" form="firewall-config-form" className="ghost-button" disabled={!isPolicyEditable || isSavingConfig}>
-												{isSavingConfig ? "Saving..." : selectedConfigID ? "Save" : "Create"}
+											<button type="button" className="primary-button fw-add-rule-btn" onClick={addRule}>
+												Add rule ↓
 											</button>
 											<button
 												type="button"
@@ -895,7 +888,7 @@ export default function App() {
 											role="tab"
 											aria-selected={configDetailTab === "overview"}
 											className={`detail-tab detail-tab-line ${configDetailTab === "overview" ? "active" : ""}`}
-											onClick={() => navigateTo(selectedConfigID ? configPath(selectedConfigID, "overview") : "/firewall-configs/new")}
+											onClick={() => navigateTo(selectedConfigID ? configPath(selectedConfigID, "overview") : "/policies/new")}
 										>
 											Overview
 										</button>
@@ -904,7 +897,7 @@ export default function App() {
 											role="tab"
 											aria-selected={configDetailTab === "rules"}
 											className={`detail-tab detail-tab-line ${configDetailTab === "rules" ? "active" : ""}`}
-											onClick={() => navigateTo(selectedConfigID ? configPath(selectedConfigID, "rules") : "/firewall-configs/new/rules")}
+											onClick={() => navigateTo(selectedConfigID ? configPath(selectedConfigID, "rules") : "/policies/new/rules")}
 										>
 											Rules
 										</button>
@@ -913,7 +906,7 @@ export default function App() {
 											role="tab"
 											aria-selected={configDetailTab === "nftables"}
 											className={`detail-tab detail-tab-line ${configDetailTab === "nftables" ? "active" : ""}`}
-											onClick={() => navigateTo(selectedConfigID ? configPath(selectedConfigID, "nftables") : "/firewall-configs/new/nftables")}
+											onClick={() => navigateTo(selectedConfigID ? configPath(selectedConfigID, "nftables") : "/policies/new/nftables")}
 										>
 											NFTables
 										</button>
@@ -998,206 +991,14 @@ export default function App() {
 												{policyEditor.rules.length === 0 ? (
 													<div className="empty-state">No rules yet. Click &quot;Add rule&quot; to start defining traffic behavior.</div>
 												) : (
-													<>
-														{inboundRules.length > 0 ? (
-															<div className="inline-direction-section">
-																<div className="inline-direction-label">
-																	<span>INBOUND</span>
-																	<span className="direction-arrow">←</span>
-																</div>
-																{inboundRules.map((rule) => {
-																	const index = policyEditor.rules.findIndex((item) => item.id === rule.id);
-																	return (
-																		<div key={rule.id} className="inline-rule-card">
-																			<button type="button" className="rule-remove-btn" onClick={() => removeRule(index)} title="Remove rule">×</button>
-																			<input
-																				className="inline-rule-desc"
-																				value={rule.description ?? ""}
-																				onChange={(e) => updateRule(index, { description: e.target.value })}
-																				placeholder="Add description"
-																			/>
-																			<div className="inline-rule-fields">
-																				<div className="peer-chips-wrap">
-																					{rule.peerType === "PUBLIC_INTERNET" ? (
-																						<>
-																							<span className="peer-chip">Any IPv4</span>
-																							<span className="peer-chip">Any IPv6</span>
-																						</>
-																					) : rule.peerType === "OFFICE_IPS" ? (
-																						<span className="peer-chip">Office IPs</span>
-																					) : rule.peerType === "THIS_NODE" ? (
-																						<span className="peer-chip">This node</span>
-																					) : rule.peerType === "CIDR" && rule.peerValue ? (
-																						<span className="peer-chip">{rule.peerValue}</span>
-																					) : null}
-																					<select
-																						className="peer-type-select"
-																						value={rule.peerType}
-																						onChange={(e) => updateRule(index, { peerType: e.target.value as PolicyRuleDraft["peerType"] })}
-																					>
-																						<option value="PUBLIC_INTERNET">Any IPv4+IPv6</option>
-																						<option value="OFFICE_IPS">Office IPs</option>
-																						<option value="CIDR">Custom CIDR…</option>
-																						<option value="THIS_NODE">This node</option>
-																					</select>
-																				</div>
-																				{rule.peerType === "CIDR" ? (
-																					<input
-																						className="peer-cidr-input"
-																						value={rule.peerValue ?? ""}
-																						onChange={(e) => updateRule(index, { peerValue: e.target.value })}
-																						placeholder="0.0.0.0/0"
-																					/>
-																				) : null}
-																				<div className="inline-labeled-field">
-																					<span>Protocol *</span>
-																					<select
-																						className="inline-select"
-																						value={rule.protocol}
-																						onChange={(e) => updateRule(index, { protocol: e.target.value as PolicyRuleDraft["protocol"] })}
-																					>
-																						<option value="TCP">TCP</option>
-																						<option value="UDP">UDP</option>
-																					</select>
-																				</div>
-																				<div className="inline-labeled-field">
-																					<span>Port *</span>
-																					<input
-																						className="inline-port-input"
-																						type="number"
-																						min={1}
-																						max={65535}
-																						value={rule.ports[0] ?? ""}
-																						onChange={(e) => {
-																							const val = Number(e.target.value);
-																							updateRule(index, { ports: val > 0 ? [val, ...rule.ports.slice(1)] : rule.ports.slice(1) });
-																						}}
-																						placeholder="Any"
-																					/>
-																				</div>
-																				<span className="port-sep">—</span>
-																				<div className="inline-labeled-field">
-																					<span>Port range</span>
-																					<input
-																						className="inline-port-input"
-																						type="number"
-																						min={1}
-																						max={65535}
-																						value={rule.ports.length > 1 ? rule.ports[rule.ports.length - 1] : ""}
-																						onChange={(e) => {
-																							const val = Number(e.target.value);
-																							const base = rule.ports[0] ?? 0;
-																							updateRule(index, { ports: val > 0 ? [base, val] : base > 0 ? [base] : [] });
-																						}}
-																						placeholder="Port range"
-																					/>
-																				</div>
-																			</div>
-																		</div>
-																	);
-																})}
-															</div>
-														) : null}
-														{outboundRules.length > 0 ? (
-															<div className="inline-direction-section">
-																<div className="inline-direction-label">
-																	<span>OUTBOUND</span>
-																	<span className="direction-arrow">→</span>
-																</div>
-																{outboundRules.map((rule) => {
-																	const index = policyEditor.rules.findIndex((item) => item.id === rule.id);
-																	return (
-																		<div key={rule.id} className="inline-rule-card">
-																			<button type="button" className="rule-remove-btn" onClick={() => removeRule(index)} title="Remove rule">×</button>
-																			<input
-																				className="inline-rule-desc"
-																				value={rule.description ?? ""}
-																				onChange={(e) => updateRule(index, { description: e.target.value })}
-																				placeholder="Add description"
-																			/>
-																			<div className="inline-rule-fields">
-																				<div className="peer-chips-wrap">
-																					{rule.peerType === "PUBLIC_INTERNET" ? (
-																						<>
-																							<span className="peer-chip">Any IPv4</span>
-																							<span className="peer-chip">Any IPv6</span>
-																						</>
-																					) : rule.peerType === "OFFICE_IPS" ? (
-																						<span className="peer-chip">Office IPs</span>
-																					) : rule.peerType === "THIS_NODE" ? (
-																						<span className="peer-chip">This node</span>
-																					) : rule.peerType === "CIDR" && rule.peerValue ? (
-																						<span className="peer-chip">{rule.peerValue}</span>
-																					) : null}
-																					<select
-																						className="peer-type-select"
-																						value={rule.peerType}
-																						onChange={(e) => updateRule(index, { peerType: e.target.value as PolicyRuleDraft["peerType"] })}
-																					>
-																						<option value="PUBLIC_INTERNET">Any IPv4+IPv6</option>
-																						<option value="OFFICE_IPS">Office IPs</option>
-																						<option value="CIDR">Custom CIDR…</option>
-																						<option value="THIS_NODE">This node</option>
-																					</select>
-																				</div>
-																				{rule.peerType === "CIDR" ? (
-																					<input
-																						className="peer-cidr-input"
-																						value={rule.peerValue ?? ""}
-																						onChange={(e) => updateRule(index, { peerValue: e.target.value })}
-																						placeholder="0.0.0.0/0"
-																					/>
-																				) : null}
-																				<div className="inline-labeled-field">
-																					<span>Protocol *</span>
-																					<select
-																						className="inline-select"
-																						value={rule.protocol}
-																						onChange={(e) => updateRule(index, { protocol: e.target.value as PolicyRuleDraft["protocol"] })}
-																					>
-																						<option value="TCP">TCP</option>
-																						<option value="UDP">UDP</option>
-																					</select>
-																				</div>
-																				<div className="inline-labeled-field">
-																					<span>Port *</span>
-																					<input
-																						className="inline-port-input"
-																						type="number"
-																						min={1}
-																						max={65535}
-																						value={rule.ports[0] ?? ""}
-																						onChange={(e) => {
-																							const val = Number(e.target.value);
-																							updateRule(index, { ports: val > 0 ? [val, ...rule.ports.slice(1)] : rule.ports.slice(1) });
-																						}}
-																						placeholder="Any"
-																					/>
-																				</div>
-																				<span className="port-sep">—</span>
-																				<div className="inline-labeled-field">
-																					<span>Port range</span>
-																					<input
-																						className="inline-port-input"
-																						type="number"
-																						min={1}
-																						max={65535}
-																						value={rule.ports.length > 1 ? rule.ports[rule.ports.length - 1] : ""}
-																						onChange={(e) => {
-																							const val = Number(e.target.value);
-																							const base = rule.ports[0] ?? 0;
-																							updateRule(index, { ports: val > 0 ? [base, val] : base > 0 ? [base] : [] });
-																						}}
-																						placeholder="Port range"
-																					/>
-																				</div>
-																			</div>
-																		</div>
-																	);
-																})}
-															</div>
-														) : null}
-													</>
+													policyEditor.rules.map((rule, idx) => (
+														<InlineRuleCard
+															key={rule.id}
+															rule={rule}
+															onUpdate={(patch) => updateRule(idx, patch)}
+															onRemove={() => removeRule(idx)}
+														/>
+													))
 												)}
 											</div>
 										</section>
@@ -1240,7 +1041,7 @@ export default function App() {
 											setConfigDetailTab("rules");
 										}}
 									>
-										{policyEditor.name || "New config"}
+										{policyEditor.name || "New Policy"}
 									</button>
 									<span>/</span>
 									<span>Rules</span>
@@ -1370,12 +1171,16 @@ function summarizePolicyRules(policy?: PolicyDraft) {
 	if (!policy) return "Legacy config";
 	const ruleCount = policy.rules.length;
 	if (ruleCount === 0) return "No rules yet";
-	if (ruleCount === 1) return "1 rule";
-	return `${ruleCount} rules`;
+	const inbound = policy.rules.filter((r) => r.direction === "INBOUND").length;
+	const outbound = policy.rules.filter((r) => r.direction === "OUTBOUND").length;
+	const parts: string[] = [];
+	if (inbound > 0) parts.push(`${inbound} inbound`);
+	if (outbound > 0) parts.push(`${outbound} outbound`);
+	return parts.join(", ");
 }
 
 function ruleDetailTitle(rule: PolicyRuleDraft | null) {
-	return rule?.id || "Rule Details";
+	return rule?.description || rule?.id || "Rule Details";
 }
 
 function buildAgentSetupScript(token?: string) {
@@ -1383,7 +1188,7 @@ function buildAgentSetupScript(token?: string) {
 	return `curl -fsSL https://raw.githubusercontent.com/cloudfirewall/cloudfirewall/main/scripts/install-agent.sh | sudo sh -s -- \\
   --api-url http://YOUR-API:8080 \\
   --enrollment-token ${enrollmentToken} \\
-  --name edge-01`;
+  --name YOUR_SERVER_NAME`;
 }
 
 function normalizePathname(pathname: string) {
@@ -1393,16 +1198,16 @@ function normalizePathname(pathname: string) {
 
 function configPath(configID: string, tab: ConfigDetailTab) {
 	if (tab === "rules") {
-		return `/firewall-configs/${encodeURIComponent(configID)}/rules`;
+		return `/policies/${encodeURIComponent(configID)}/rules`;
 	}
 	if (tab === "nftables") {
-		return `/firewall-configs/${encodeURIComponent(configID)}/nftables`;
+		return `/policies/${encodeURIComponent(configID)}/nftables`;
 	}
-	return `/firewall-configs/${encodeURIComponent(configID)}`;
+	return `/policies/${encodeURIComponent(configID)}`;
 }
 
 function rulePath(configID: string, ruleID: string) {
-	return `/firewall-configs/${encodeURIComponent(configID)}/rules/${encodeURIComponent(ruleID)}`;
+	return `/policies/${encodeURIComponent(configID)}/rules/${encodeURIComponent(ruleID)}`;
 }
 
 function parseRoute(pathname: string): ParsedRoute {
@@ -1413,7 +1218,7 @@ function parseRoute(pathname: string): ParsedRoute {
 		return { view: "agents" };
 	}
 
-	if (parts[0] !== "firewall-configs") {
+	if (parts[0] !== "policies") {
 		return { view: "agents" };
 	}
 
@@ -1471,7 +1276,7 @@ function formatPeerLabel(rule: PolicyRuleDraft) {
 function formatPortLabel(rule: PolicyRuleDraft) {
 	if (rule.ports.length === 0) return "Any port";
 	if (rule.ports.length === 1) return `Port ${rule.ports[0]}`;
-	return `Ports ${rule.ports.join(", ")}`;
+	return `Ports ${rule.ports[0]}–${rule.ports[rule.ports.length - 1]}`;
 }
 
 function parsePorts(value: string) {
@@ -1495,4 +1300,128 @@ function formatTime(value?: string) {
 	const date = new Date(value);
 	if (Number.isNaN(date.getTime())) return value;
 	return date.toLocaleString();
+}
+
+function InlineRuleCard({
+	rule,
+	onUpdate,
+	onRemove,
+}: {
+	rule: PolicyRuleDraft;
+	onUpdate: (patch: Partial<PolicyRuleDraft>) => void;
+	onRemove: () => void;
+}) {
+	return (
+		<div className="inline-rule-card">
+			<button type="button" className="rule-remove-btn" onClick={onRemove} title="Remove rule">
+				×
+			</button>
+			<input
+				className="inline-rule-desc"
+				value={rule.description ?? ""}
+				onChange={(e) => onUpdate({ description: e.target.value })}
+				placeholder="Add description"
+			/>
+			<div className="inline-rule-fields">
+				<div className="inline-labeled-field">
+					<span>Direction</span>
+					<select
+						className="inline-select"
+						value={rule.direction}
+						onChange={(e) => onUpdate({ direction: e.target.value as PolicyRuleDraft["direction"] })}
+					>
+						<option value="INBOUND">Inbound</option>
+						<option value="OUTBOUND">Outbound</option>
+					</select>
+				</div>
+				<div className="inline-labeled-field">
+					<span>Action</span>
+					<select
+						className="inline-select"
+						value={rule.action}
+						onChange={(e) => onUpdate({ action: e.target.value as PolicyRuleDraft["action"] })}
+					>
+						<option value="ALLOW">Allow</option>
+						<option value="DENY">Deny</option>
+						<option value="REJECT">Reject</option>
+					</select>
+				</div>
+				<div className="peer-chips-wrap">
+					{rule.peerType === "PUBLIC_INTERNET" ? (
+						<>
+							<span className="peer-chip">Any IPv4</span>
+							<span className="peer-chip">Any IPv6</span>
+						</>
+					) : rule.peerType === "OFFICE_IPS" ? (
+						<span className="peer-chip">Office IPs</span>
+					) : rule.peerType === "THIS_NODE" ? (
+						<span className="peer-chip">This node</span>
+					) : rule.peerType === "CIDR" && rule.peerValue ? (
+						<span className="peer-chip">{rule.peerValue}</span>
+					) : null}
+					<select
+						className="peer-type-select"
+						value={rule.peerType}
+						onChange={(e) => onUpdate({ peerType: e.target.value as PolicyRuleDraft["peerType"] })}
+					>
+						<option value="PUBLIC_INTERNET">Any IPv4+IPv6</option>
+						<option value="OFFICE_IPS">Office IPs</option>
+						<option value="CIDR">Custom CIDR…</option>
+						<option value="THIS_NODE">This node</option>
+					</select>
+				</div>
+				{rule.peerType === "CIDR" ? (
+					<input
+						className="peer-cidr-input"
+						value={rule.peerValue ?? ""}
+						onChange={(e) => onUpdate({ peerValue: e.target.value })}
+						placeholder="0.0.0.0/0"
+					/>
+				) : null}
+				<div className="inline-labeled-field">
+					<span>Protocol</span>
+					<select
+						className="inline-select"
+						value={rule.protocol}
+						onChange={(e) => onUpdate({ protocol: e.target.value as PolicyRuleDraft["protocol"] })}
+					>
+						<option value="TCP">TCP</option>
+						<option value="UDP">UDP</option>
+					</select>
+				</div>
+				<div className="inline-labeled-field">
+					<span>Port</span>
+					<input
+						className="inline-port-input"
+						type="number"
+						min={1}
+						max={65535}
+						value={rule.ports[0] ?? ""}
+						onChange={(e) => {
+							const val = Number(e.target.value);
+							onUpdate({ ports: val > 0 ? [val, ...rule.ports.slice(1)] : rule.ports.slice(1) });
+						}}
+						placeholder="Any"
+					/>
+				</div>
+				<span className="port-sep">—</span>
+				<div className="inline-labeled-field">
+					<span>To</span>
+					<input
+						className="inline-port-input"
+						type="number"
+						min={1}
+						max={65535}
+						value={rule.ports.length > 1 ? rule.ports[rule.ports.length - 1] : ""}
+						onChange={(e) => {
+							const val = Number(e.target.value);
+							const base = rule.ports[0] ?? 0;
+							onUpdate({ ports: val > 0 ? [base, val] : base > 0 ? [base] : [] });
+						}}
+						placeholder="end"
+					/>
+				</div>
+			</div>
+		</div>
+	);
 }
