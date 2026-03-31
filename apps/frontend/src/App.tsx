@@ -137,7 +137,7 @@ export default function App() {
 			try {
 				const [agentsResponse, configsResponse] = await Promise.all([
 					fetch(`${API_BASE}/api/v1/agents`, { headers: { Authorization: `Bearer ${authToken}` } }),
-					fetch(`${API_BASE}/api/v1/firewall-configs`, { headers: { Authorization: `Bearer ${authToken}` } }),
+					fetch(`${API_BASE}/api/v1/policies`, { headers: { Authorization: `Bearer ${authToken}` } }),
 				]);
 				if (!agentsResponse.ok || !configsResponse.ok) {
 					const status =
@@ -360,7 +360,7 @@ export default function App() {
 	}
 
 	async function reloadConfigs() {
-		const response = await authorizedFetch("/api/v1/firewall-configs");
+		const response = await authorizedFetch("/api/v1/policies");
 		const payload = (await response.json()) as ListFirewallConfigsResponse;
 		setConfigs(payload.configs);
 		return payload.configs;
@@ -445,12 +445,12 @@ export default function App() {
 				policy: policyEditor,
 			};
 			const response = selectedConfigID
-				? await authorizedFetch(`/api/v1/firewall-configs/${selectedConfigID}`, {
+				? await authorizedFetch(`/api/v1/policies/${selectedConfigID}`, {
 						method: "PUT",
 						headers: { "Content-Type": "application/json" },
 						body: JSON.stringify(payload),
 					})
-				: await authorizedFetch("/api/v1/firewall-configs", {
+				: await authorizedFetch("/api/v1/policies", {
 						method: "POST",
 						headers: { "Content-Type": "application/json" },
 						body: JSON.stringify(payload),
@@ -482,7 +482,7 @@ export default function App() {
 		setIsApplyingConfig(true);
 		setConfigError("");
 		try {
-			const response = await authorizedFetch(`/api/v1/firewall-configs/${selectedConfigID}/apply`, { method: "POST" });
+			const response = await authorizedFetch(`/api/v1/policies/${selectedConfigID}/apply`, { method: "POST" });
 			if (!response.ok) throw new Error(await extractError(response, "Failed to apply firewall policy"));
 			const nextConfigs = await reloadConfigs();
 			const next = nextConfigs.find((config) => config.id === selectedConfigID);
@@ -502,7 +502,7 @@ export default function App() {
 		setIsDeletingConfig(true);
 		setConfigError("");
 		try {
-			const response = await authorizedFetch(`/api/v1/firewall-configs/${selectedConfigID}`, { method: "DELETE" });
+			const response = await authorizedFetch(`/api/v1/policies/${selectedConfigID}`, { method: "DELETE" });
 			if (!response.ok) throw new Error(await extractError(response, "Failed to delete firewall policy"));
 			const nextConfigs = await reloadConfigs();
 			if (nextConfigs.length > 0) {

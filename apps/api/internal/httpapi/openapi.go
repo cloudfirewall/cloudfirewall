@@ -94,8 +94,8 @@ func openAPISpec() map[string]any {
 					},
 				},
 			},
-			"/api/v1/firewall-config": map[string]any{
-				"post": map[string]any{
+			"/api/v1/policies/active": map[string]any{
+				"put": map[string]any{
 					"summary": "Update the active nftables configuration served to agents",
 					"security": []map[string]any{
 						{"bearerAuth": []any{}},
@@ -109,7 +109,7 @@ func openAPISpec() map[string]any {
 					},
 				},
 			},
-			"/api/v1/firewall-configs": map[string]any{
+			"/api/v1/policies": map[string]any{
 				"get": map[string]any{
 					"summary": "List saved firewall policies",
 					"security": []map[string]any{
@@ -135,7 +135,7 @@ func openAPISpec() map[string]any {
 					},
 				},
 			},
-			"/api/v1/firewall-configs/{id}": map[string]any{
+			"/api/v1/policies/{id}": map[string]any{
 				"get": map[string]any{
 					"summary": "Fetch a saved firewall policy",
 					"security": []map[string]any{
@@ -176,7 +176,7 @@ func openAPISpec() map[string]any {
 					},
 				},
 			},
-			"/api/v1/firewall-configs/{id}/apply": map[string]any{
+			"/api/v1/policies/{id}/apply": map[string]any{
 				"post": map[string]any{
 					"summary": "Apply a saved firewall policy to the fleet",
 					"security": []map[string]any{
