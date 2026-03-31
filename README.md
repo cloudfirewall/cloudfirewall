@@ -3,7 +3,7 @@
 Cloudfirewall is organized around four product surfaces:
 
 - `apps/engine`: policy validation, compilation, simulation, and artifact CLI
-- `apps/agent`: host-side agent entrypoint that enrolls, heartbeats, and applies firewall configs
+- `apps/agent`: host-side agent entrypoint that enrolls, heartbeats, and applies firewall policies
 - `apps/api`: API server for enrollment, heartbeat tracking, and config delivery
 - `apps/frontend`: React/Vite dashboard for fleet status
 
@@ -26,8 +26,8 @@ apps/
 - engine CLI
 - API server for agent enrollment, heartbeat, config sync, and fleet listing
 - policy-based firewall authoring, compiled to nftables by the engine
-- saved firewall configuration CRUD and dashboard-driven fleet rollout
-- agent enrollment and heartbeat loop with firewall config polling
+- saved firewall policy CRUD and dashboard-driven fleet rollout
+- agent enrollment and heartbeat loop with firewall policy polling
 - frontend dashboard for online status and nftables firewall versions
 - JSON test fixtures and golden tests
 
@@ -72,7 +72,7 @@ http://localhost:8080/swagger
 
 Frontend login uses the configured admin username and password. Programmatic API access can use the configured `X-API-Key` header. Enrollment tokens are now created from the frontend after login and are signed, expiring, and single-use.
 
-The API persists enrolled agents, one-time enrollment token state, and saved firewall configurations in an embedded BoltDB database. Point `-db-path` or `CLOUDFIREWALL_API_DB_PATH` at a stable file location if you want agent/config state to survive API restarts. Admin login sessions are intentionally ephemeral and are not retained across restarts.
+The API persists enrolled agents, one-time enrollment token state, and saved firewall policies in an embedded BoltDB database. Point `-db-path` or `CLOUDFIREWALL_API_DB_PATH` at a stable file location if you want agent/policy state to survive API restarts. Admin login sessions are intentionally ephemeral and are not retained across restarts.
 
 Log into the frontend, generate an enrollment token, then run an agent once in dry-run mode:
 
@@ -155,7 +155,7 @@ The Docker-based e2e stack runs the API, generates a one-time enrollment token, 
 
 The frontend proxies `/api` requests to `http://localhost:8080` in development and renders both the fleet view and a policy builder workspace. Admins define intent in a simpler policy model such as direction, peer, protocol, and ports, and the API compiles that policy to nftables through the engine before agents receive it. The dashboard also keeps the compiled nftables preview visible so operators can inspect the exact ruleset being shipped to hosts.
 
-The firewall config API follows the same model-first approach. `POST` and `PUT /api/v1/firewall-configs` accept either:
+The firewall policy API follows the same model-first approach. `POST` and `PUT /api/v1/firewall-configs` accept either:
 
 - a `policy` object for the simplified admin authoring flow
 - an `nftablesConfig` string for legacy or advanced raw ruleset management

@@ -61,8 +61,13 @@ type ListFirewallConfigsResponse = {
 };
 
 type DashboardView = "agents" | "configs";
-type ConfigDetailTab = "overview" | "rules";
+type ConfigDetailTab = "overview" | "rules" | "nftables";
 type ConfigScreen = "list" | "details" | "rule";
+type ParsedRoute =
+	| { view: "agents" }
+	| { view: "configs"; screen: "list" }
+	| { view: "configs"; screen: "details"; isNew: boolean; configId?: string; tab: ConfigDetailTab }
+	| { view: "configs"; screen: "rule"; configId: string; ruleID: string };
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 const POLL_INTERVAL_MS = 5000;
@@ -81,6 +86,7 @@ const emptyPolicy = (): PolicyDraft => ({
 
 export default function App() {
 	const [authToken, setAuthToken] = useState(() => window.localStorage.getItem(TOKEN_KEY) ?? "");
+	const [pathname, setPathname] = useState(() => normalizePathname(window.location.pathname));
 	const [username, setUsername] = useState("admin");
 	const [password, setPassword] = useState("");
 	const [activeView, setActiveView] = useState<DashboardView>("agents");
@@ -99,12 +105,22 @@ export default function App() {
 	const [authError, setAuthError] = useState("");
 	const [tokenError, setTokenError] = useState("");
 	const [lastUpdated, setLastUpdated] = useState("");
+	const [copiedItem, setCopiedItem] = useState("");
 	const [isLoading, setIsLoading] = useState(true);
 	const [isAuthenticating, setIsAuthenticating] = useState(false);
 	const [isCreatingToken, setIsCreatingToken] = useState(false);
 	const [isSavingConfig, setIsSavingConfig] = useState(false);
 	const [isApplyingConfig, setIsApplyingConfig] = useState(false);
 	const [isDeletingConfig, setIsDeletingConfig] = useState(false);
+
+	useEffect(() => {
+		function handlePopState() {
+			setPathname(normalizePathname(window.location.pathname));
+		}
+
+		window.addEventListener("popstate", handlePopState);
+		return () => window.removeEventListener("popstate", handlePopState);
+	}, []);
 
 	useEffect(() => {
 		if (!authToken) {
@@ -213,12 +229,69 @@ export default function App() {
 		};
 	}, [authToken, activeView]);
 
+	useEffect(() => {
+		const route = parseRoute(pathname);
+
+		if (route.view === "agents") {
+			setActiveView("agents");
+			return;
+		}
+
+		setActiveView("configs");
+		setConfigScreen(route.screen);
+
+		if (route.screen === "list") {
+			return;
+		}
+
+		if (route.screen === "details" && route.isNew) {
+			if (selectedConfigID !== "") {
+				setSelectedConfigID("");
+				setSelectedRuleIndex(-1);
+				setEditorVersion("");
+				setPolicyEditor(emptyPolicy());
+				setConfigError("");
+			}
+			setConfigDetailTab(route.tab);
+			return;
+		}
+
+		if (!route.configId || configs.length === 0) {
+			return;
+		}
+
+		const config = configs.find((item) => item.id === route.configId);
+		if (!config) {
+			return;
+		}
+
+		if (selectedConfigID !== config.id) {
+			syncConfigEditor(config);
+		}
+
+		if (route.screen === "details") {
+			setConfigDetailTab(route.tab);
+			return;
+		}
+
+		if (route.screen === "rule") {
+			setConfigDetailTab("rules");
+			const ruleIndex = config.policy?.rules.findIndex((rule) => rule.id === route.ruleID) ?? -1;
+			if (ruleIndex >= 0) {
+				setSelectedRuleIndex(ruleIndex);
+			}
+		}
+	}, [pathname, configs, selectedConfigID]);
+
 	const onlineAgents = agents.filter((agent) => agent.online).length;
 	const selectedConfig = configs.find((config) => config.id === selectedConfigID) ?? null;
 	const selectedRule = selectedRuleIndex >= 0 ? policyEditor.rules[selectedRuleIndex] ?? null : null;
 	const isPolicyEditable = !selectedConfig || Boolean(selectedConfig.policy);
 	const configPageCount = Math.max(1, Math.ceil(configs.length / CONFIGS_PAGE_SIZE));
 	const pagedConfigs = configs.slice((configListPage - 1) * CONFIGS_PAGE_SIZE, configListPage * CONFIGS_PAGE_SIZE);
+	const agentSetupScript = buildAgentSetupScript(generatedToken?.token);
+	const inboundRules = policyEditor.rules.filter((rule) => rule.direction === "INBOUND");
+	const outboundRules = policyEditor.rules.filter((rule) => rule.direction === "OUTBOUND");
 
 	useEffect(() => {
 		if (configListPage > configPageCount) {
@@ -247,30 +320,36 @@ export default function App() {
 		syncConfigEditor(config);
 	}
 
+	function navigateTo(path: string, replace = false) {
+		const nextPath = normalizePathname(path);
+		if (nextPath === pathname) {
+			return;
+		}
+		const method = replace ? "replaceState" : "pushState";
+		window.history[method](null, "", nextPath);
+		setPathname(nextPath);
+	}
+
 	function openConfigList() {
-		setActiveView("configs");
-		setConfigScreen("list");
+		navigateTo("/firewall-configs");
 	}
 
 	function openConfigDetails(config: FirewallConfigSummary) {
 		selectConfig(config);
-		setConfigScreen("details");
+		navigateTo(configPath(config.id, "overview"));
 	}
 
 	function openRuleDetails(index: number) {
 		setSelectedRuleIndex(index);
-		setConfigScreen("rule");
+		const rule = policyEditor.rules[index];
+		if (!selectedConfigID || !rule) {
+			return;
+		}
+		navigateTo(rulePath(selectedConfigID, rule.id));
 	}
 
 	function startNewConfig() {
-		setActiveView("configs");
-		setConfigScreen("details");
-		setConfigDetailTab("overview");
-		setSelectedConfigID("");
-		setSelectedRuleIndex(-1);
-		setEditorVersion("");
-		setPolicyEditor(emptyPolicy());
-		setConfigError("");
+		navigateTo("/firewall-configs/new");
 	}
 
 	async function authorizedFetch(path: string, init?: RequestInit) {
@@ -350,6 +429,18 @@ export default function App() {
 		}
 	}
 
+	async function copyToClipboard(text: string, key: string) {
+		try {
+			await navigator.clipboard.writeText(text);
+			setCopiedItem(key);
+			window.setTimeout(() => {
+				setCopiedItem((current) => (current === key ? "" : current));
+			}, 2000);
+		} catch {
+			setTokenError("Copy failed. Please copy it manually.");
+		}
+	}
+
 	async function handleSavePolicy(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 		setIsSavingConfig(true);
@@ -377,7 +468,17 @@ export default function App() {
 			const saved = (await response.json()) as { id?: string; version: string };
 			const nextConfigs = await reloadConfigs();
 			const next = nextConfigs.find((config) => config.id === (saved.id ?? selectedConfigID)) ?? nextConfigs[0];
-			if (next) selectConfig(next);
+			if (next) {
+				selectConfig(next);
+				if (configScreen === "rule" && selectedRuleIndex >= 0) {
+					const nextRule = next.policy?.rules[selectedRuleIndex];
+					if (nextRule) {
+						navigateTo(rulePath(next.id, nextRule.id), true);
+						return;
+					}
+				}
+				navigateTo(selectedConfigID ? configPath(next.id, configDetailTab) : configPath(next.id, "overview"), true);
+			}
 		} catch (saveError) {
 			setConfigError(saveError instanceof Error ? saveError.message : "Failed to save firewall policy");
 		} finally {
@@ -391,12 +492,15 @@ export default function App() {
 		setConfigError("");
 		try {
 			const response = await authorizedFetch(`/api/v1/firewall-configs/${selectedConfigID}/apply`, { method: "POST" });
-			if (!response.ok) throw new Error(await extractError(response, "Failed to apply firewall config"));
+			if (!response.ok) throw new Error(await extractError(response, "Failed to apply firewall policy"));
 			const nextConfigs = await reloadConfigs();
 			const next = nextConfigs.find((config) => config.id === selectedConfigID);
-			if (next) selectConfig(next);
+			if (next) {
+				selectConfig(next);
+				navigateTo(configPath(next.id, configDetailTab), true);
+			}
 		} catch (applyError) {
-			setConfigError(applyError instanceof Error ? applyError.message : "Failed to apply firewall config");
+			setConfigError(applyError instanceof Error ? applyError.message : "Failed to apply firewall policy");
 		} finally {
 			setIsApplyingConfig(false);
 		}
@@ -408,15 +512,16 @@ export default function App() {
 		setConfigError("");
 		try {
 			const response = await authorizedFetch(`/api/v1/firewall-configs/${selectedConfigID}`, { method: "DELETE" });
-			if (!response.ok) throw new Error(await extractError(response, "Failed to delete firewall config"));
+			if (!response.ok) throw new Error(await extractError(response, "Failed to delete firewall policy"));
 			const nextConfigs = await reloadConfigs();
 			if (nextConfigs.length > 0) {
 				selectConfig(nextConfigs[0]);
+				navigateTo("/firewall-configs", true);
 			} else {
-				startNewConfig();
+				navigateTo("/firewall-configs", true);
 			}
 		} catch (deleteError) {
-			setConfigError(deleteError instanceof Error ? deleteError.message : "Failed to delete firewall config");
+			setConfigError(deleteError instanceof Error ? deleteError.message : "Failed to delete firewall policy");
 		} finally {
 			setIsDeletingConfig(false);
 		}
@@ -431,10 +536,11 @@ export default function App() {
 
 	function addRule() {
 		const nextIndex = policyEditor.rules.length;
+		const nextRuleID = `rule-${nextIndex + 1}`;
 		setPolicyEditor((current) => ({
 			...current,
 			rules: current.rules.concat({
-				id: `rule-${current.rules.length + 1}`,
+				id: nextRuleID,
 				direction: "INBOUND",
 				action: "ALLOW",
 				peerType: "PUBLIC_INTERNET",
@@ -446,8 +552,10 @@ export default function App() {
 				description: "",
 			}),
 		}));
-		setConfigScreen("rule");
 		setSelectedRuleIndex(nextIndex);
+		if (selectedConfigID) {
+			navigateTo(rulePath(selectedConfigID, nextRuleID));
+		}
 	}
 
 	function removeRule(index: number) {
@@ -461,8 +569,11 @@ export default function App() {
 			if (current === index) return Math.max(0, index - 1);
 			return current;
 		});
-		setConfigScreen("details");
-		setConfigDetailTab("rules");
+		if (selectedConfigID) {
+			navigateTo(configPath(selectedConfigID, "rules"), true);
+		} else {
+			navigateTo("/firewall-configs/new/rules", true);
+		}
 	}
 
 	if (!authToken) {
@@ -506,7 +617,7 @@ export default function App() {
 					<button
 						type="button"
 						className={`nav-item ${activeView === "agents" ? "active" : ""}`}
-						onClick={() => setActiveView("agents")}
+						onClick={() => navigateTo("/agents")}
 					>
 						<span className="nav-label">Agents</span>
 						<span className="nav-meta">{agents.length}</span>
@@ -516,7 +627,7 @@ export default function App() {
 						className={`nav-item ${activeView === "configs" ? "active" : ""}`}
 						onClick={openConfigList}
 					>
-						<span className="nav-label">Firewall Configs</span>
+						<span className="nav-label">Firewall Policies</span>
 						<span className="nav-meta">{configs.length}</span>
 					</button>
 				</nav>
@@ -541,18 +652,18 @@ export default function App() {
 							{activeView === "agents"
 								? "Agents"
 								: configScreen === "list"
-									? "Firewall Configs"
+									? "Firewall Policies"
 									: configScreen === "details"
-										? policyEditor.name || "Firewall Config Details"
-										: selectedRule?.description || selectedRule?.id || "Rule Details"}
+										? policyEditor.name || "Firewall Policy Details"
+										: ruleDetailTitle(selectedRule)}
 						</h2>
 						<p className="section-copy">
 							{activeView === "agents"
 								? "Review connected agents, heartbeat state, and create one-time enrollment tokens for new installs."
 								: configScreen === "list"
-									? "Browse saved firewall configs and choose the one you want to inspect."
+									? "Browse saved firewall policies and choose the one you want to inspect."
 									: configScreen === "details"
-										? "Review one firewall config at a time and switch between overview and rule listings."
+										? "Review one firewall policy at a time and switch between overview, rules, and translated output."
 										: "Edit one rule at a time with focused actions for saving or deleting changes."}
 						</p>
 					</div>
@@ -571,7 +682,7 @@ export default function App() {
 							</button>
 						) : (
 							<button type="button" className="primary-button" onClick={startNewConfig}>
-								Add Firewall Config
+								Add Firewall Policy
 							</button>
 						)}
 						<button type="button" className="ghost-button" onClick={handleLogout}>
@@ -654,6 +765,12 @@ export default function App() {
 								<p className="muted-copy">Issue a one-time enrollment token from the dashboard, then use it in the installer or agent CLI.</p>
 								{generatedToken ? (
 									<div className="token-box">
+										<div className="copy-row">
+											<strong>Enrollment token</strong>
+											<button type="button" className="ghost-button copy-button" onClick={() => void copyToClipboard(generatedToken.token, "token")}>
+												{copiedItem === "token" ? "Copied" : "Copy token"}
+											</button>
+										</div>
 										<code>{generatedToken.token}</code>
 										<span>Expires {formatTime(generatedToken.expiresAt)}</span>
 									</div>
@@ -665,12 +782,13 @@ export default function App() {
 							<section className="surface rail-card">
 								<p className="section-kicker">Install</p>
 								<h3>One-line agent setup</h3>
-								<pre className="code-preview">
-{`curl -fsSL https://raw.githubusercontent.com/cloudfirewall/cloudfirewall/main/scripts/install-agent.sh | sudo sh -s -- \\
-  --api-url http://YOUR-API:8080 \\
-  --enrollment-token <generated-enrollment-token> \\
-  --name edge-01`}
-								</pre>
+								<div className="copy-row">
+									<span className="muted-copy">The latest enrollment token is injected into the install command automatically.</span>
+									<button type="button" className="ghost-button copy-button" onClick={() => void copyToClipboard(agentSetupScript, "setup-script")}>
+										{copiedItem === "setup-script" ? "Copied" : "Copy setup"}
+									</button>
+								</div>
+								<pre className="code-preview">{agentSetupScript}</pre>
 							</section>
 						</aside>
 					</section>
@@ -681,8 +799,8 @@ export default function App() {
 								<div className="surface-header">
 									<div>
 										<p className="section-kicker">Library</p>
-										<h3>All firewall configs</h3>
-										<p className="muted-copy">Choose a config to inspect it, update overview settings, or drill into its rules.</p>
+										<h3>All firewall policies</h3>
+										<p className="muted-copy">Choose a policy to inspect it, update overview settings, or drill into its rules.</p>
 									</div>
 								</div>
 
@@ -732,28 +850,81 @@ export default function App() {
 							<section className="surface page-surface">
 								<nav className="breadcrumbs" aria-label="Breadcrumb">
 									<button type="button" className="breadcrumb-link" onClick={openConfigList}>
-										Firewall Configs
+										Firewall Policies
 									</button>
 									<span>/</span>
 									<span>{policyEditor.name || "New config"}</span>
 								</nav>
 
-								<div className="surface-header">
-									<div>
-										<p className="section-kicker">Details</p>
-										<h3>{selectedConfigID ? "Firewall config details" : "Create firewall config"}</h3>
+								<div className="firewall-page-header">
+									<div className="firewall-page-titlebar">
+										<div className="firewall-page-title-group">
+											<h3>{policyEditor.name || (selectedConfigID ? "Firewall Policy" : "New Policy")}</h3>
+											{selectedConfig ? (
+												<span className={`fw-status-badge ${selectedConfig.isActive ? "applied" : "saved"}`}>
+													{selectedConfig.isActive ? "✓ Fully applied" : "Saved"}
+												</span>
+											) : null}
+										</div>
+										<div className="fw-header-actions">
+											{configDetailTab === "rules" ? (
+												<button type="button" className="primary-button fw-add-rule-btn" onClick={addRule}>
+													Add rule ↓
+												</button>
+											) : null}
+											<button type="submit" form="firewall-config-form" className="ghost-button" disabled={!isPolicyEditable || isSavingConfig}>
+												{isSavingConfig ? "Saving..." : selectedConfigID ? "Save" : "Create"}
+											</button>
+											<button
+												type="button"
+												className="ghost-button"
+												disabled={!selectedConfigID || isApplyingConfig}
+												onClick={() => void handleApplyConfig()}
+											>
+												{isApplyingConfig ? "Applying..." : "Apply to fleet"}
+											</button>
+											<button
+												type="button"
+												className="ghost-button danger-ghost"
+												disabled={!selectedConfigID || isDeletingConfig}
+												onClick={() => void handleDeleteConfig()}
+											>
+												{isDeletingConfig ? "Deleting..." : "Delete"}
+											</button>
+										</div>
 									</div>
-									<div className="detail-header-actions">
-										<button type="submit" form="firewall-config-form" className="primary-button" disabled={!isPolicyEditable || isSavingConfig}>
-											{isSavingConfig ? "Saving..." : selectedConfigID ? "Save config" : "Create config"}
+									<div className="firewall-page-stats">
+										<span>Rules {policyEditor.rules.length}</span>
+										{selectedConfig ? <span>{selectedConfig.isActive ? "Applied to fleet" : "Draft"}</span> : null}
+										{editorVersion ? <span>v{editorVersion}</span> : null}
+									</div>
+									<div className="detail-tabs detail-tabs-line" role="tablist" aria-label="Firewall config details">
+										<button
+											type="button"
+											role="tab"
+											aria-selected={configDetailTab === "overview"}
+											className={`detail-tab detail-tab-line ${configDetailTab === "overview" ? "active" : ""}`}
+											onClick={() => navigateTo(selectedConfigID ? configPath(selectedConfigID, "overview") : "/firewall-configs/new")}
+										>
+											Overview
 										</button>
 										<button
 											type="button"
-											className="ghost-button"
-											disabled={!selectedConfigID || isApplyingConfig}
-											onClick={() => void handleApplyConfig()}
+											role="tab"
+											aria-selected={configDetailTab === "rules"}
+											className={`detail-tab detail-tab-line ${configDetailTab === "rules" ? "active" : ""}`}
+											onClick={() => navigateTo(selectedConfigID ? configPath(selectedConfigID, "rules") : "/firewall-configs/new/rules")}
 										>
-											{isApplyingConfig ? "Applying..." : "Apply to fleet"}
+											Rules
+										</button>
+										<button
+											type="button"
+											role="tab"
+											aria-selected={configDetailTab === "nftables"}
+											className={`detail-tab detail-tab-line ${configDetailTab === "nftables" ? "active" : ""}`}
+											onClick={() => navigateTo(selectedConfigID ? configPath(selectedConfigID, "nftables") : "/firewall-configs/new/nftables")}
+										>
+											NFTables
 										</button>
 									</div>
 								</div>
@@ -765,32 +936,11 @@ export default function App() {
 								) : null}
 
 								<form className="config-form" id="firewall-config-form" onSubmit={handleSavePolicy}>
-									<div className="detail-tabs" role="tablist" aria-label="Firewall config details">
-										<button
-											type="button"
-											role="tab"
-											aria-selected={configDetailTab === "overview"}
-											className={`detail-tab ${configDetailTab === "overview" ? "active" : ""}`}
-											onClick={() => setConfigDetailTab("overview")}
-										>
-											Overview
-										</button>
-										<button
-											type="button"
-											role="tab"
-											aria-selected={configDetailTab === "rules"}
-											className={`detail-tab ${configDetailTab === "rules" ? "active" : ""}`}
-											onClick={() => setConfigDetailTab("rules")}
-										>
-											Rules
-										</button>
-									</div>
-
 									{configDetailTab === "overview" ? (
 										<section className="tab-panel" role="tabpanel" aria-label="Overview">
 											<div className="tab-intro">
 												<h4>Overview</h4>
-												<p>Set the config identity, defaults, and baseline safety behavior.</p>
+												<p>Set the policy identity, defaults, and baseline safety behavior.</p>
 											</div>
 
 											<label className="field">
@@ -851,54 +1001,235 @@ export default function App() {
 												</label>
 											</div>
 										</section>
-									) : (
+									) : configDetailTab === "rules" ? (
 										<section className="tab-panel" role="tabpanel" aria-label="Rules">
-											<div className="rules-toolbar">
-												<div>
-													<h4>Rules</h4>
-													<p>Review all rules in short form, then open one to edit it in detail.</p>
-												</div>
-												<div className="rules-toolbar-actions">
-													<button type="button" className="ghost-button" onClick={addRule}>
-														Add rule
-													</button>
-												</div>
+											<div className="inline-rules-section">
+												{policyEditor.rules.length === 0 ? (
+													<div className="empty-state">No rules yet. Click &quot;Add rule&quot; to start defining traffic behavior.</div>
+												) : (
+													<>
+														{inboundRules.length > 0 ? (
+															<div className="inline-direction-section">
+																<div className="inline-direction-label">
+																	<span>INBOUND</span>
+																	<span className="direction-arrow">←</span>
+																</div>
+																{inboundRules.map((rule) => {
+																	const index = policyEditor.rules.findIndex((item) => item.id === rule.id);
+																	return (
+																		<div key={rule.id} className="inline-rule-card">
+																			<button type="button" className="rule-remove-btn" onClick={() => removeRule(index)} title="Remove rule">×</button>
+																			<input
+																				className="inline-rule-desc"
+																				value={rule.description ?? ""}
+																				onChange={(e) => updateRule(index, { description: e.target.value })}
+																				placeholder="Add description"
+																			/>
+																			<div className="inline-rule-fields">
+																				<div className="peer-chips-wrap">
+																					{rule.peerType === "PUBLIC_INTERNET" ? (
+																						<>
+																							<span className="peer-chip">Any IPv4</span>
+																							<span className="peer-chip">Any IPv6</span>
+																						</>
+																					) : rule.peerType === "OFFICE_IPS" ? (
+																						<span className="peer-chip">Office IPs</span>
+																					) : rule.peerType === "THIS_NODE" ? (
+																						<span className="peer-chip">This node</span>
+																					) : rule.peerType === "CIDR" && rule.peerValue ? (
+																						<span className="peer-chip">{rule.peerValue}</span>
+																					) : null}
+																					<select
+																						className="peer-type-select"
+																						value={rule.peerType}
+																						onChange={(e) => updateRule(index, { peerType: e.target.value as PolicyRuleDraft["peerType"] })}
+																					>
+																						<option value="PUBLIC_INTERNET">Any IPv4+IPv6</option>
+																						<option value="OFFICE_IPS">Office IPs</option>
+																						<option value="CIDR">Custom CIDR…</option>
+																						<option value="THIS_NODE">This node</option>
+																					</select>
+																				</div>
+																				{rule.peerType === "CIDR" ? (
+																					<input
+																						className="peer-cidr-input"
+																						value={rule.peerValue ?? ""}
+																						onChange={(e) => updateRule(index, { peerValue: e.target.value })}
+																						placeholder="0.0.0.0/0"
+																					/>
+																				) : null}
+																				<div className="inline-labeled-field">
+																					<span>Protocol *</span>
+																					<select
+																						className="inline-select"
+																						value={rule.protocol}
+																						onChange={(e) => updateRule(index, { protocol: e.target.value as PolicyRuleDraft["protocol"] })}
+																					>
+																						<option value="TCP">TCP</option>
+																						<option value="UDP">UDP</option>
+																					</select>
+																				</div>
+																				<div className="inline-labeled-field">
+																					<span>Port *</span>
+																					<input
+																						className="inline-port-input"
+																						type="number"
+																						min={1}
+																						max={65535}
+																						value={rule.ports[0] ?? ""}
+																						onChange={(e) => {
+																							const val = Number(e.target.value);
+																							updateRule(index, { ports: val > 0 ? [val, ...rule.ports.slice(1)] : rule.ports.slice(1) });
+																						}}
+																						placeholder="Any"
+																					/>
+																				</div>
+																				<span className="port-sep">—</span>
+																				<div className="inline-labeled-field">
+																					<span>Port range</span>
+																					<input
+																						className="inline-port-input"
+																						type="number"
+																						min={1}
+																						max={65535}
+																						value={rule.ports.length > 1 ? rule.ports[rule.ports.length - 1] : ""}
+																						onChange={(e) => {
+																							const val = Number(e.target.value);
+																							const base = rule.ports[0] ?? 0;
+																							updateRule(index, { ports: val > 0 ? [base, val] : base > 0 ? [base] : [] });
+																						}}
+																						placeholder="Port range"
+																					/>
+																				</div>
+																			</div>
+																		</div>
+																	);
+																})}
+															</div>
+														) : null}
+														{outboundRules.length > 0 ? (
+															<div className="inline-direction-section">
+																<div className="inline-direction-label">
+																	<span>OUTBOUND</span>
+																	<span className="direction-arrow">→</span>
+																</div>
+																{outboundRules.map((rule) => {
+																	const index = policyEditor.rules.findIndex((item) => item.id === rule.id);
+																	return (
+																		<div key={rule.id} className="inline-rule-card">
+																			<button type="button" className="rule-remove-btn" onClick={() => removeRule(index)} title="Remove rule">×</button>
+																			<input
+																				className="inline-rule-desc"
+																				value={rule.description ?? ""}
+																				onChange={(e) => updateRule(index, { description: e.target.value })}
+																				placeholder="Add description"
+																			/>
+																			<div className="inline-rule-fields">
+																				<div className="peer-chips-wrap">
+																					{rule.peerType === "PUBLIC_INTERNET" ? (
+																						<>
+																							<span className="peer-chip">Any IPv4</span>
+																							<span className="peer-chip">Any IPv6</span>
+																						</>
+																					) : rule.peerType === "OFFICE_IPS" ? (
+																						<span className="peer-chip">Office IPs</span>
+																					) : rule.peerType === "THIS_NODE" ? (
+																						<span className="peer-chip">This node</span>
+																					) : rule.peerType === "CIDR" && rule.peerValue ? (
+																						<span className="peer-chip">{rule.peerValue}</span>
+																					) : null}
+																					<select
+																						className="peer-type-select"
+																						value={rule.peerType}
+																						onChange={(e) => updateRule(index, { peerType: e.target.value as PolicyRuleDraft["peerType"] })}
+																					>
+																						<option value="PUBLIC_INTERNET">Any IPv4+IPv6</option>
+																						<option value="OFFICE_IPS">Office IPs</option>
+																						<option value="CIDR">Custom CIDR…</option>
+																						<option value="THIS_NODE">This node</option>
+																					</select>
+																				</div>
+																				{rule.peerType === "CIDR" ? (
+																					<input
+																						className="peer-cidr-input"
+																						value={rule.peerValue ?? ""}
+																						onChange={(e) => updateRule(index, { peerValue: e.target.value })}
+																						placeholder="0.0.0.0/0"
+																					/>
+																				) : null}
+																				<div className="inline-labeled-field">
+																					<span>Protocol *</span>
+																					<select
+																						className="inline-select"
+																						value={rule.protocol}
+																						onChange={(e) => updateRule(index, { protocol: e.target.value as PolicyRuleDraft["protocol"] })}
+																					>
+																						<option value="TCP">TCP</option>
+																						<option value="UDP">UDP</option>
+																					</select>
+																				</div>
+																				<div className="inline-labeled-field">
+																					<span>Port *</span>
+																					<input
+																						className="inline-port-input"
+																						type="number"
+																						min={1}
+																						max={65535}
+																						value={rule.ports[0] ?? ""}
+																						onChange={(e) => {
+																							const val = Number(e.target.value);
+																							updateRule(index, { ports: val > 0 ? [val, ...rule.ports.slice(1)] : rule.ports.slice(1) });
+																						}}
+																						placeholder="Any"
+																					/>
+																				</div>
+																				<span className="port-sep">—</span>
+																				<div className="inline-labeled-field">
+																					<span>Port range</span>
+																					<input
+																						className="inline-port-input"
+																						type="number"
+																						min={1}
+																						max={65535}
+																						value={rule.ports.length > 1 ? rule.ports[rule.ports.length - 1] : ""}
+																						onChange={(e) => {
+																							const val = Number(e.target.value);
+																							const base = rule.ports[0] ?? 0;
+																							updateRule(index, { ports: val > 0 ? [base, val] : base > 0 ? [base] : [] });
+																						}}
+																						placeholder="Port range"
+																					/>
+																				</div>
+																			</div>
+																		</div>
+																	);
+																})}
+															</div>
+														) : null}
+													</>
+												)}
+											</div>
+										</section>
+									) : (
+										<section className="tab-panel" role="tabpanel" aria-label="NFTables">
+											<div className="tab-intro">
+												<h4>Translated nftables config</h4>
+												<p>This is the generated nftables output derived from the rules defined in this firewall policy.</p>
 											</div>
 
-											<div className="rules-list-page">
-												{policyEditor.rules.length === 0 ? (
-													<div className="empty-state">No rules yet. Add a rule to start defining traffic behavior.</div>
-												) : null}
-												{policyEditor.rules.map((rule, index) => (
-													<button key={`${rule.id}-${index}`} type="button" className="rule-list-item" onClick={() => openRuleDetails(index)}>
-														<strong>{rule.description || `Rule ${index + 1}`}</strong>
-														<span>{rule.action} {rule.direction.toLowerCase()}</span>
-														<small>{describeRule(rule)}</small>
-													</button>
-												))}
-											</div>
+											{selectedConfig?.nftablesConfig ? (
+												<pre className="code-preview">{selectedConfig.nftablesConfig}</pre>
+											) : (
+												<div className="empty-state">
+													Save this firewall policy first to see the translated nftables output.
+												</div>
+											)}
 										</section>
 									)}
 
-									<div className="form-actions">
+									<div className="form-actions-bar">
 										<button type="submit" className="primary-button" disabled={!isPolicyEditable || isSavingConfig}>
-											{isSavingConfig ? "Saving..." : selectedConfigID ? "Save config" : "Create config"}
-										</button>
-										<button
-											type="button"
-											className="ghost-button"
-											disabled={!selectedConfigID || isApplyingConfig}
-											onClick={() => void handleApplyConfig()}
-										>
-											{isApplyingConfig ? "Applying..." : "Apply to fleet"}
-										</button>
-										<button
-											type="button"
-											className="ghost-button danger-ghost"
-											disabled={!selectedConfigID || isDeletingConfig}
-											onClick={() => void handleDeleteConfig()}
-										>
-											{isDeletingConfig ? "Deleting..." : "Delete"}
+											{isSavingConfig ? "Saving..." : selectedConfigID ? "Save policy" : "Create policy"}
 										</button>
 									</div>
 								</form>
@@ -907,7 +1238,7 @@ export default function App() {
 							<section className="surface page-surface">
 								<nav className="breadcrumbs" aria-label="Breadcrumb">
 									<button type="button" className="breadcrumb-link" onClick={openConfigList}>
-										Firewall Configs
+										Firewall Policies
 									</button>
 									<span>/</span>
 									<button
@@ -923,13 +1254,21 @@ export default function App() {
 									<span>/</span>
 									<span>Rules</span>
 									<span>/</span>
-									<span>{selectedRule?.description || selectedRule?.id || "Rule details"}</span>
+									<span>{ruleDetailTitle(selectedRule)}</span>
 								</nav>
 
-								<div className="surface-header">
-									<div>
+								<div className="policy-hero rule-hero">
+									<div className="title-block">
 										<p className="section-kicker">Rule Details</p>
-										<h3>{selectedRule?.description || selectedRule?.id || "Rule details"}</h3>
+										<h3>{ruleDetailTitle(selectedRule)}</h3>
+										{selectedRule ? (
+											<div className="policy-hero-meta">
+												<span>{selectedRule.direction === "INBOUND" ? "Inbound" : "Outbound"}</span>
+												<span>{selectedRule.action}</span>
+												<span>{formatPeerLabel(selectedRule)}</span>
+												<span>{formatPortLabel(selectedRule)}</span>
+											</div>
+										) : null}
 									</div>
 									<div className="detail-header-actions">
 										<button type="submit" form="firewall-config-form" className="primary-button" disabled={!isPolicyEditable || isSavingConfig}>
@@ -949,6 +1288,10 @@ export default function App() {
 								<form className="config-form" id="firewall-config-form" onSubmit={handleSavePolicy}>
 									{selectedRule ? (
 										<div className="rule-editor-pane standalone">
+											<div className="tab-intro">
+												<h4>Rule settings</h4>
+												<p>Define who this rule applies to, which protocol and ports it covers, and how the firewall should respond.</p>
+											</div>
 											<div className="rule-grid">
 												<label className="field">
 													<span>Direction</span>
@@ -1007,7 +1350,7 @@ export default function App() {
 
 											<label className="field">
 												<span>Description</span>
-												<input value={selectedRule.description ?? ""} onChange={(event) => updateRule(selectedRuleIndex, { description: event.target.value })} />
+												<textarea rows={4} value={selectedRule.description ?? ""} onChange={(event) => updateRule(selectedRuleIndex, { description: event.target.value })} />
 											</label>
 
 											<div className="check-row">
@@ -1040,10 +1383,109 @@ function summarizePolicyRules(policy?: PolicyDraft) {
 	return `${ruleCount} rules`;
 }
 
+function ruleDetailTitle(rule: PolicyRuleDraft | null) {
+	return rule?.id || "Rule Details";
+}
+
+function buildAgentSetupScript(token?: string) {
+	const enrollmentToken = token?.trim() ? token : "<generated-enrollment-token>";
+	return `curl -fsSL https://raw.githubusercontent.com/cloudfirewall/cloudfirewall/main/scripts/install-agent.sh | sudo sh -s -- \\
+  --api-url http://YOUR-API:8080 \\
+  --enrollment-token ${enrollmentToken} \\
+  --name edge-01`;
+}
+
+function normalizePathname(pathname: string) {
+	if (!pathname || pathname === "/") return "/agents";
+	return pathname.replace(/\/+$/, "") || "/agents";
+}
+
+function configPath(configID: string, tab: ConfigDetailTab) {
+	if (tab === "rules") {
+		return `/firewall-configs/${encodeURIComponent(configID)}/rules`;
+	}
+	if (tab === "nftables") {
+		return `/firewall-configs/${encodeURIComponent(configID)}/nftables`;
+	}
+	return `/firewall-configs/${encodeURIComponent(configID)}`;
+}
+
+function rulePath(configID: string, ruleID: string) {
+	return `/firewall-configs/${encodeURIComponent(configID)}/rules/${encodeURIComponent(ruleID)}`;
+}
+
+function parseRoute(pathname: string): ParsedRoute {
+	const normalized = normalizePathname(pathname);
+	const parts = normalized.split("/").filter(Boolean).map(decodeURIComponent);
+
+	if (parts.length === 0 || parts[0] === "agents") {
+		return { view: "agents" };
+	}
+
+	if (parts[0] !== "firewall-configs") {
+		return { view: "agents" };
+	}
+
+	if (parts.length === 1) {
+		return { view: "configs", screen: "list" };
+	}
+
+	if (parts[1] === "new") {
+		if (parts[2] === "rules") {
+			return { view: "configs", screen: "details", isNew: true, tab: "rules" };
+		}
+		if (parts[2] === "nftables") {
+			return { view: "configs", screen: "details", isNew: true, tab: "nftables" };
+		}
+		return { view: "configs", screen: "details", isNew: true, tab: "overview" };
+	}
+
+	const configID = parts[1];
+	if (parts.length === 2) {
+		return { view: "configs", screen: "details", isNew: false, configId: configID, tab: "overview" };
+	}
+
+	if (parts[2] === "rules" && parts.length === 3) {
+		return { view: "configs", screen: "details", isNew: false, configId: configID, tab: "rules" };
+	}
+
+	if (parts[2] === "nftables" && parts.length === 3) {
+		return { view: "configs", screen: "details", isNew: false, configId: configID, tab: "nftables" };
+	}
+
+	if (parts[2] === "rules" && parts[3]) {
+		return { view: "configs", screen: "rule", configId: configID, ruleID: parts[3] };
+	}
+
+	return { view: "configs", screen: "list" };
+}
+
 function describeRule(rule: PolicyRuleDraft) {
-	const ports = rule.ports.length > 0 ? rule.ports.join(", ") : "any port";
-	const peer = rule.peerType === "CIDR" ? rule.peerValue || "custom CIDR" : rule.peerType.split("_").join(" ").toLowerCase();
+	const ports = formatPortLabel(rule);
+	const peer = formatPeerLabel(rule).toLowerCase();
 	return `${rule.protocol} ${ports} from ${peer}`;
+}
+
+function formatPeerLabel(rule: PolicyRuleDraft) {
+	if (rule.peerType === "CIDR") {
+		return rule.peerValue || "Custom CIDR";
+	}
+	if (rule.peerType === "PUBLIC_INTERNET") {
+		return "Public internet";
+	}
+	if (rule.peerType === "OFFICE_IPS") {
+		return "Office IPs";
+	}
+	if (rule.peerType === "THIS_NODE") {
+		return "This node";
+	}
+	return rule.peerType;
+}
+
+function formatPortLabel(rule: PolicyRuleDraft) {
+	if (rule.ports.length === 0) return "Any port";
+	if (rule.ports.length === 1) return `Port ${rule.ports[0]}`;
+	return `Ports ${rule.ports.join(", ")}`;
 }
 
 function parsePorts(value: string) {

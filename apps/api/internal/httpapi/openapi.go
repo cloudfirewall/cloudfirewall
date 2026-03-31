@@ -104,66 +104,66 @@ func openAPISpec() map[string]any {
 					"requestBody": jsonRequestBody("UpdateFirewallConfigRequest"),
 					"responses": map[string]any{
 						"200": jsonResponse("UpdateFirewallConfigResponse", "Firewall config updated"),
-						"400": jsonResponse("ErrorResponse", "Invalid firewall config request"),
+						"400": jsonResponse("ErrorResponse", "Invalid firewall policy request"),
 						"401": jsonResponse("ErrorResponse", "Missing or invalid admin bearer token or API key"),
 					},
 				},
 			},
 			"/api/v1/firewall-configs": map[string]any{
 				"get": map[string]any{
-					"summary": "List saved firewall configurations",
+					"summary": "List saved firewall policies",
 					"security": []map[string]any{
 						{"bearerAuth": []any{}},
 						{"apiKeyAuth": []any{}},
 					},
 					"responses": map[string]any{
-						"200": jsonResponse("ListFirewallConfigsResponse", "Saved firewall configs"),
+						"200": jsonResponse("ListFirewallConfigsResponse", "Saved firewall policies"),
 						"401": jsonResponse("ErrorResponse", "Missing or invalid admin bearer token or API key"),
 					},
 				},
 				"post": map[string]any{
-					"summary": "Create a saved firewall configuration",
+					"summary": "Create a saved firewall policy",
 					"security": []map[string]any{
 						{"bearerAuth": []any{}},
 						{"apiKeyAuth": []any{}},
 					},
 					"requestBody": jsonRequestBody("CreateFirewallConfigRequest"),
 					"responses": map[string]any{
-						"201": jsonResponse("FirewallConfigSummary", "Created firewall config"),
-						"400": jsonResponse("ErrorResponse", "Invalid firewall config request"),
+						"201": jsonResponse("FirewallConfigSummary", "Created firewall policy"),
+						"400": jsonResponse("ErrorResponse", "Invalid firewall policy request"),
 						"401": jsonResponse("ErrorResponse", "Missing or invalid admin bearer token or API key"),
 					},
 				},
 			},
 			"/api/v1/firewall-configs/{id}": map[string]any{
 				"get": map[string]any{
-					"summary": "Fetch a saved firewall configuration",
+					"summary": "Fetch a saved firewall policy",
 					"security": []map[string]any{
 						{"bearerAuth": []any{}},
 						{"apiKeyAuth": []any{}},
 					},
 					"responses": map[string]any{
-						"200": jsonResponse("FirewallConfigSummary", "Saved firewall config"),
+						"200": jsonResponse("FirewallConfigSummary", "Saved firewall policy"),
 						"401": jsonResponse("ErrorResponse", "Missing or invalid admin bearer token or API key"),
 						"404": jsonResponse("ErrorResponse", "Firewall config not found"),
 					},
 				},
 				"put": map[string]any{
-					"summary": "Update a saved firewall configuration",
+					"summary": "Update a saved firewall policy",
 					"security": []map[string]any{
 						{"bearerAuth": []any{}},
 						{"apiKeyAuth": []any{}},
 					},
 					"requestBody": jsonRequestBody("UpdateFirewallConfigRequest"),
 					"responses": map[string]any{
-						"200": jsonResponse("UpdateFirewallConfigResponse", "Updated firewall config"),
-						"400": jsonResponse("ErrorResponse", "Invalid firewall config request"),
+						"200": jsonResponse("UpdateFirewallConfigResponse", "Updated firewall policy"),
+						"400": jsonResponse("ErrorResponse", "Invalid firewall policy request"),
 						"401": jsonResponse("ErrorResponse", "Missing or invalid admin bearer token or API key"),
 						"404": jsonResponse("ErrorResponse", "Firewall config not found"),
 					},
 				},
 				"delete": map[string]any{
-					"summary": "Delete a saved firewall configuration",
+					"summary": "Delete a saved firewall policy",
 					"security": []map[string]any{
 						{"bearerAuth": []any{}},
 						{"apiKeyAuth": []any{}},
@@ -178,7 +178,7 @@ func openAPISpec() map[string]any {
 			},
 			"/api/v1/firewall-configs/{id}/apply": map[string]any{
 				"post": map[string]any{
-					"summary": "Apply a saved firewall configuration to the fleet",
+					"summary": "Apply a saved firewall policy to the fleet",
 					"security": []map[string]any{
 						{"bearerAuth": []any{}},
 						{"apiKeyAuth": []any{}},
@@ -220,7 +220,7 @@ func openAPISpec() map[string]any {
 						{"bearerAuth": []any{}},
 					},
 					"responses": map[string]any{
-						"200": jsonResponse("AgentConfigResponse", "Current firewall config"),
+						"200": jsonResponse("AgentConfigResponse", "Current firewall policy"),
 						"401": jsonResponse("ErrorResponse", "Missing or invalid bearer token"),
 					},
 				},
