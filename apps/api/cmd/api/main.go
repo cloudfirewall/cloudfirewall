@@ -66,6 +66,8 @@ func loadFirewallConfig(path string) (service.FirewallConfig, error) {
 	version := "sha256-" + hex.EncodeToString(sum[:8])
 
 	return service.FirewallConfig{
+		ID:             "cfg_default",
+		Name:           "Default Firewall",
 		Version:        version,
 		NFTablesConfig: string(content),
 		UpdatedAt:      time.Now().UTC(),

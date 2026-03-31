@@ -1,5 +1,7 @@
 package types
 
+import "github.com/cloudfirewall/cloudfirewall/apps/engine/policybuilder"
+
 type EnrollAgentRequest struct {
 	EnrollmentToken string `json:"enrollmentToken"`
 	AgentName       string `json:"agentName"`
@@ -18,13 +20,46 @@ type CreateEnrollmentTokenResponse struct {
 }
 
 type UpdateFirewallConfigRequest struct {
-	Version        string `json:"version,omitempty"`
-	NFTablesConfig string `json:"nftablesConfig"`
+	Name           string                     `json:"name,omitempty"`
+	Version        string                     `json:"version,omitempty"`
+	NFTablesConfig string                     `json:"nftablesConfig,omitempty"`
+	Policy         *policybuilder.PolicyDraft `json:"policy,omitempty"`
 }
 
 type UpdateFirewallConfigResponse struct {
+	ID        string `json:"id,omitempty"`
+	Name      string `json:"name,omitempty"`
 	Version   string `json:"version"`
 	UpdatedAt string `json:"updatedAt"`
+}
+
+type FirewallConfigSummary struct {
+	ID             string                     `json:"id"`
+	Name           string                     `json:"name"`
+	Version        string                     `json:"version"`
+	UpdatedAt      string                     `json:"updatedAt"`
+	IsActive       bool                       `json:"isActive"`
+	NFTablesConfig string                     `json:"nftablesConfig,omitempty"`
+	Policy         *policybuilder.PolicyDraft `json:"policy,omitempty"`
+}
+
+type CreateFirewallConfigRequest struct {
+	Name           string                     `json:"name"`
+	Version        string                     `json:"version,omitempty"`
+	NFTablesConfig string                     `json:"nftablesConfig,omitempty"`
+	Policy         *policybuilder.PolicyDraft `json:"policy,omitempty"`
+}
+
+type CreateFirewallConfigResponse = FirewallConfigSummary
+
+type GetFirewallConfigResponse = FirewallConfigSummary
+
+type ListFirewallConfigsResponse struct {
+	Configs []FirewallConfigSummary `json:"configs"`
+}
+
+type ApplyFirewallConfigResponse struct {
+	Config FirewallConfigSummary `json:"config"`
 }
 
 type AdminLoginRequest struct {

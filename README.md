@@ -25,6 +25,8 @@ apps/
 - normalization, resolution, validation, compilation, simulation, and artifact packages
 - engine CLI
 - API server for agent enrollment, heartbeat, config sync, and fleet listing
+- policy-based firewall authoring, compiled to nftables by the engine
+- saved firewall configuration CRUD and dashboard-driven fleet rollout
 - agent enrollment and heartbeat loop with firewall config polling
 - frontend dashboard for online status and nftables firewall versions
 - JSON test fixtures and golden tests
@@ -44,9 +46,11 @@ make agent
 1. Agents enroll with `POST /api/v1/enroll` using a one-time signed enrollment token.
 2. Admin users log into the frontend and create one-time signed enrollment tokens with `POST /api/v1/enrollment-tokens`.
 3. The API verifies the enrollment token signature and one-time-use status, then returns an agent auth token plus suggested heartbeat and config poll intervals.
-4. Agents pull `GET /api/v1/agents/self/config` to get the current nftables ruleset and config version.
+4. Agents pull `GET /api/v1/agents/self/config` to get the current compiled nftables ruleset and config version.
 5. Agents send `POST /api/v1/agents/self/heartbeat` so the API can mark them online and record the firewall version they are running.
-6. The frontend reads `GET /api/v1/agents` to show fleet status.
+6. Admin users create and edit high-level firewall policies through `GET/POST/PUT/DELETE /api/v1/firewall-configs`, and the API compiles those policies to nftables with the engine before storing them.
+7. Admin users promote one saved policy/config to the fleet with `POST /api/v1/firewall-configs/{id}/apply`.
+8. The frontend reads `GET /api/v1/agents` to show fleet status and rollout convergence.
 
 ## Run The Stack
 
@@ -68,7 +72,7 @@ http://localhost:8080/swagger
 
 Frontend login uses the configured admin username and password. Programmatic API access can use the configured `X-API-Key` header. Enrollment tokens are now created from the frontend after login and are signed, expiring, and single-use.
 
-The API persists enrolled agents, one-time enrollment token state, and the active firewall configuration in an embedded BoltDB database. Point `-db-path` or `CLOUDFIREWALL_API_DB_PATH` at a stable file location if you want agent/auth state to survive API restarts. Admin login sessions are intentionally ephemeral and are not retained across restarts.
+The API persists enrolled agents, one-time enrollment token state, and saved firewall configurations in an embedded BoltDB database. Point `-db-path` or `CLOUDFIREWALL_API_DB_PATH` at a stable file location if you want agent/config state to survive API restarts. Admin login sessions are intentionally ephemeral and are not retained across restarts.
 
 Log into the frontend, generate an enrollment token, then run an agent once in dry-run mode:
 
@@ -149,7 +153,14 @@ The Docker-based e2e stack runs the API, generates a one-time enrollment token, 
 
 ## Frontend
 
-The frontend proxies `/api` requests to `http://localhost:8080` in development and renders the enrolled agents, their online status, and the firewall version reported in heartbeats.
+The frontend proxies `/api` requests to `http://localhost:8080` in development and renders both the fleet view and a policy builder workspace. Admins define intent in a simpler policy model such as direction, peer, protocol, and ports, and the API compiles that policy to nftables through the engine before agents receive it. The dashboard also keeps the compiled nftables preview visible so operators can inspect the exact ruleset being shipped to hosts.
+
+The firewall config API follows the same model-first approach. `POST` and `PUT /api/v1/firewall-configs` accept either:
+
+- a `policy` object for the simplified admin authoring flow
+- an `nftablesConfig` string for legacy or advanced raw ruleset management
+
+Configs created from raw nftables remain supported, but the frontend treats them as legacy entries and encourages creating new policy-backed configs for normal operations.
 
 The agent defaults to `-dry-run` so it can participate in the control-plane flow without needing root privileges or an installed `nft` binary. When you want it to apply the received ruleset for real, run it with `-dry-run=false`.
 

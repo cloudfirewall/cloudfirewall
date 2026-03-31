@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cloudfirewall/cloudfirewall/apps/api/types"
+	"github.com/cloudfirewall/cloudfirewall/apps/engine/policybuilder"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -29,8 +30,11 @@ type SecurityConfig struct {
 }
 
 type FirewallConfig struct {
+	ID             string
+	Name           string
 	Version        string
 	NFTablesConfig string
+	Policy         *policybuilder.PolicyDraft
 	UpdatedAt      time.Time
 }
 
@@ -63,9 +67,10 @@ type Store struct {
 	db                 *bolt.DB
 	enrollmentTokens   map[string]*EnrollmentTokenRecord
 	agents             map[string]*AgentRecord
+	firewallConfigs    map[string]*FirewallConfig
+	activeConfigID     string
 	agentIDsByToken    map[string]string
 	adminSessions      map[string]time.Time
-	firewallConfig     FirewallConfig
 	security           SecurityConfig
 	heartbeatTimeout   time.Duration
 	heartbeatInterval  time.Duration
@@ -82,9 +87,9 @@ func NewStore(security SecurityConfig, config FirewallConfig, dbPath string, hea
 		db:                 db,
 		enrollmentTokens:   make(map[string]*EnrollmentTokenRecord),
 		agents:             make(map[string]*AgentRecord),
+		firewallConfigs:    make(map[string]*FirewallConfig),
 		agentIDsByToken:    make(map[string]string),
 		adminSessions:      make(map[string]time.Time),
-		firewallConfig:     config,
 		security:           security,
 		heartbeatTimeout:   heartbeatTimeout,
 		heartbeatInterval:  heartbeatInterval,
@@ -245,11 +250,19 @@ func (s *Store) Config(authToken string) (types.AgentConfigResponse, error) {
 	if _, err := s.lookupAgent(authToken); err != nil {
 		return types.AgentConfigResponse{}, err
 	}
+	active, err := s.activeFirewallConfigLocked()
+	if err != nil {
+		return types.AgentConfigResponse{}, err
+	}
+	version, content, err := materializeFirewallConfig(active)
+	if err != nil {
+		return types.AgentConfigResponse{}, err
+	}
 
 	return types.AgentConfigResponse{
-		Version:        s.firewallConfig.Version,
-		NFTablesConfig: s.firewallConfig.NFTablesConfig,
-		UpdatedAt:      s.firewallConfig.UpdatedAt.Format(time.RFC3339),
+		Version:        version,
+		NFTablesConfig: content,
+		UpdatedAt:      active.UpdatedAt.Format(time.RFC3339),
 	}, nil
 }
 
@@ -257,31 +270,219 @@ func (s *Store) UpdateFirewallConfig(req types.UpdateFirewallConfigRequest) (typ
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	content := strings.TrimSpace(req.NFTablesConfig)
-	if content == "" {
-		return types.UpdateFirewallConfigResponse{}, errors.New("nftablesConfig is required")
+	active, err := s.activeFirewallConfigLocked()
+	if err != nil {
+		return types.UpdateFirewallConfigResponse{}, err
+	}
+
+	updated, err := s.upsertFirewallConfigLocked(active.ID, req.Name, req.Version, req.NFTablesConfig, req.Policy)
+	if err != nil {
+		return types.UpdateFirewallConfigResponse{}, err
+	}
+
+	return firewallConfigUpdateResponse(updated)
+}
+
+func (s *Store) CreateFirewallConfig(req types.CreateFirewallConfigRequest) (types.CreateFirewallConfigResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	config, err := s.upsertFirewallConfigLocked("cfg_"+randomHex(8), req.Name, req.Version, req.NFTablesConfig, req.Policy)
+	if err != nil {
+		return types.CreateFirewallConfigResponse{}, err
+	}
+
+	return s.toFirewallConfigSummary(config)
+}
+
+func (s *Store) ListFirewallConfigs() (types.ListFirewallConfigsResponse, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	response := types.ListFirewallConfigsResponse{
+		Configs: make([]types.FirewallConfigSummary, 0, len(s.firewallConfigs)),
+	}
+	for _, config := range s.firewallConfigs {
+		summary, err := s.toFirewallConfigSummary(config)
+		if err != nil {
+			return types.ListFirewallConfigsResponse{}, err
+		}
+		response.Configs = append(response.Configs, summary)
+	}
+	return response, nil
+}
+
+func (s *Store) GetFirewallConfig(id string) (types.GetFirewallConfigResponse, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	config, ok := s.firewallConfigs[strings.TrimSpace(id)]
+	if !ok {
+		return types.GetFirewallConfigResponse{}, errors.New("firewall config not found")
+	}
+	return s.toFirewallConfigSummary(config)
+}
+
+func (s *Store) UpdateFirewallConfigByID(id string, req types.UpdateFirewallConfigRequest) (types.UpdateFirewallConfigResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.firewallConfigs[strings.TrimSpace(id)]; !ok {
+		return types.UpdateFirewallConfigResponse{}, errors.New("firewall config not found")
+	}
+
+	config, err := s.upsertFirewallConfigLocked(strings.TrimSpace(id), req.Name, req.Version, req.NFTablesConfig, req.Policy)
+	if err != nil {
+		return types.UpdateFirewallConfigResponse{}, err
+	}
+
+	return firewallConfigUpdateResponse(config)
+}
+
+func (s *Store) DeleteFirewallConfig(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("firewall config id is required")
+	}
+	if id == s.activeConfigID {
+		return errors.New("cannot delete active firewall config")
+	}
+	if _, ok := s.firewallConfigs[id]; !ok {
+		return errors.New("firewall config not found")
+	}
+	delete(s.firewallConfigs, id)
+	return s.deleteFirewallConfig(id)
+}
+
+func (s *Store) ApplyFirewallConfig(id string) (types.ApplyFirewallConfigResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	config, ok := s.firewallConfigs[strings.TrimSpace(id)]
+	if !ok {
+		return types.ApplyFirewallConfigResponse{}, errors.New("firewall config not found")
+	}
+	s.activeConfigID = config.ID
+	if err := s.saveActiveFirewallConfigID(config.ID); err != nil {
+		return types.ApplyFirewallConfigResponse{}, err
+	}
+	summary, err := s.toFirewallConfigSummary(config)
+	if err != nil {
+		return types.ApplyFirewallConfigResponse{}, err
+	}
+	return types.ApplyFirewallConfigResponse{Config: summary}, nil
+}
+
+func (s *Store) activeFirewallConfigLocked() (*FirewallConfig, error) {
+	config, ok := s.firewallConfigs[s.activeConfigID]
+	if !ok {
+		return nil, errors.New("active firewall config not found")
+	}
+	return config, nil
+}
+
+func (s *Store) upsertFirewallConfigLocked(id, name, version, nftablesConfig string, policy *policybuilder.PolicyDraft) (*FirewallConfig, error) {
+	content := strings.TrimSpace(nftablesConfig)
+	var compiledPolicy *policybuilder.PolicyDraft
+	if policy != nil {
+		policyCopy := *policy
+		if strings.TrimSpace(policyCopy.Name) == "" {
+			policyCopy.Name = strings.TrimSpace(name)
+		}
+		compiled, err := policybuilder.CompileDraft(policyCopy)
+		if err != nil {
+			return nil, err
+		}
+		content = ""
+		version = compiled.Version
+		if strings.TrimSpace(name) == "" {
+			name = policyCopy.Name
+		}
+		compiledPolicy = &policyCopy
+	}
+	if content == "" && compiledPolicy == nil {
+		return nil, errors.New("nftablesConfig or policy is required")
 	}
 
 	now := time.Now().UTC()
-	version := strings.TrimSpace(req.Version)
+	version = strings.TrimSpace(version)
+	if version == "" {
+		sum := sha256.Sum256([]byte(content))
+		version = "sha256-" + hex.EncodeToString(sum[:8])
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = id
+	}
+
+	config := &FirewallConfig{
+		ID:             id,
+		Name:           name,
+		Version:        version,
+		NFTablesConfig: content,
+		Policy:         compiledPolicy,
+		UpdatedAt:      now,
+	}
+	s.firewallConfigs[id] = config
+	if err := s.saveFirewallConfig(*config); err != nil {
+		return nil, err
+	}
+	return config, nil
+}
+
+func (s *Store) toFirewallConfigSummary(config *FirewallConfig) (types.FirewallConfigSummary, error) {
+	version, content, err := materializeFirewallConfig(config)
+	if err != nil {
+		return types.FirewallConfigSummary{}, err
+	}
+	return types.FirewallConfigSummary{
+		ID:             config.ID,
+		Name:           config.Name,
+		Version:        version,
+		UpdatedAt:      config.UpdatedAt.Format(time.RFC3339),
+		IsActive:       config.ID == s.activeConfigID,
+		NFTablesConfig: content,
+		Policy:         config.Policy,
+	}, nil
+}
+
+func firewallConfigUpdateResponse(config *FirewallConfig) (types.UpdateFirewallConfigResponse, error) {
+	version, _, err := materializeFirewallConfig(config)
+	if err != nil {
+		return types.UpdateFirewallConfigResponse{}, err
+	}
+	return types.UpdateFirewallConfigResponse{
+		ID:        config.ID,
+		Name:      config.Name,
+		Version:   version,
+		UpdatedAt: config.UpdatedAt.Format(time.RFC3339),
+	}, nil
+}
+
+func materializeFirewallConfig(config *FirewallConfig) (string, string, error) {
+	if config.Policy != nil {
+		compiled, err := policybuilder.CompileDraft(*config.Policy)
+		if err != nil {
+			return "", "", err
+		}
+		return compiled.Version, compiled.Content, nil
+	}
+
+	content := strings.TrimSpace(config.NFTablesConfig)
+	if content == "" {
+		return "", "", errors.New("firewall config has no policy or nftables content")
+	}
+
+	version := strings.TrimSpace(config.Version)
 	if version == "" {
 		sum := sha256.Sum256([]byte(content))
 		version = "sha256-" + hex.EncodeToString(sum[:8])
 	}
 
-	s.firewallConfig = FirewallConfig{
-		Version:        version,
-		NFTablesConfig: req.NFTablesConfig,
-		UpdatedAt:      now,
-	}
-	if err := s.saveFirewallConfig(s.firewallConfig); err != nil {
-		return types.UpdateFirewallConfigResponse{}, err
-	}
-
-	return types.UpdateFirewallConfigResponse{
-		Version:   version,
-		UpdatedAt: now.Format(time.RFC3339),
-	}, nil
+	return version, content, nil
 }
 
 func (s *Store) AuthorizeAPIKey(apiKey string) error {

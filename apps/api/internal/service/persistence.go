@@ -11,10 +11,12 @@ import (
 )
 
 var (
-	bucketAgents           = []byte("agents")
-	bucketEnrollmentTokens = []byte("enrollment_tokens")
-	bucketMetadata         = []byte("metadata")
-	keyFirewallConfig      = []byte("firewall_config")
+	bucketAgents              = []byte("agents")
+	bucketEnrollmentTokens    = []byte("enrollment_tokens")
+	bucketFirewallConfigs     = []byte("firewall_configs")
+	bucketMetadata            = []byte("metadata")
+	keyFirewallConfig         = []byte("firewall_config")
+	keyActiveFirewallConfigID = []byte("active_firewall_config_id")
 )
 
 func openDB(path string) (*bolt.DB, error) {
@@ -31,7 +33,7 @@ func openDB(path string) (*bolt.DB, error) {
 	}
 
 	if err := db.Update(func(tx *bolt.Tx) error {
-		for _, bucket := range [][]byte{bucketAgents, bucketEnrollmentTokens, bucketMetadata} {
+		for _, bucket := range [][]byte{bucketAgents, bucketEnrollmentTokens, bucketFirewallConfigs, bucketMetadata} {
 			if _, err := tx.CreateBucketIfNotExists(bucket); err != nil {
 				return err
 			}
@@ -60,19 +62,54 @@ func (s *Store) loadPersistedState(initialConfig FirewallConfig) error {
 		if err := loadBucketRecords(tx.Bucket(bucketEnrollmentTokens), &s.enrollmentTokens, nil); err != nil {
 			return err
 		}
+		if err := loadBucketRecords(tx.Bucket(bucketFirewallConfigs), &s.firewallConfigs, nil); err != nil {
+			return err
+		}
 
 		metadata := tx.Bucket(bucketMetadata)
 		if metadata == nil {
 			return errors.New("metadata bucket missing")
 		}
 
-		payload := metadata.Get(keyFirewallConfig)
-		if len(payload) == 0 {
-			s.firewallConfig = initialConfig
-			return putJSON(metadata, keyFirewallConfig, initialConfig)
+		activeID := metadata.Get(keyActiveFirewallConfigID)
+		if len(activeID) != 0 {
+			s.activeConfigID = string(activeID)
+			return nil
 		}
 
-		return json.Unmarshal(payload, &s.firewallConfig)
+		payload := metadata.Get(keyFirewallConfig)
+		if len(payload) != 0 {
+			var migrated FirewallConfig
+			if err := json.Unmarshal(payload, &migrated); err != nil {
+				return err
+			}
+			if migrated.ID == "" {
+				migrated.ID = "cfg_default"
+			}
+			if migrated.Name == "" {
+				migrated.Name = "Default Firewall"
+			}
+			s.firewallConfigs[migrated.ID] = &migrated
+			s.activeConfigID = migrated.ID
+			if err := putJSON(tx.Bucket(bucketFirewallConfigs), []byte(migrated.ID), migrated); err != nil {
+				return err
+			}
+			return metadata.Put(keyActiveFirewallConfigID, []byte(migrated.ID))
+		}
+
+		initial := initialConfig
+		if initial.ID == "" {
+			initial.ID = "cfg_default"
+		}
+		if initial.Name == "" {
+			initial.Name = "Default Firewall"
+		}
+		s.firewallConfigs[initial.ID] = &initial
+		s.activeConfigID = initial.ID
+		if err := putJSON(tx.Bucket(bucketFirewallConfigs), []byte(initial.ID), initial); err != nil {
+			return err
+		}
+		return metadata.Put(keyActiveFirewallConfigID, []byte(initial.ID))
 	})
 }
 
@@ -108,7 +145,19 @@ func (s *Store) saveAgent(record *AgentRecord) error {
 
 func (s *Store) saveFirewallConfig(config FirewallConfig) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
-		return putJSON(tx.Bucket(bucketMetadata), keyFirewallConfig, config)
+		return putJSON(tx.Bucket(bucketFirewallConfigs), []byte(config.ID), config)
+	})
+}
+
+func (s *Store) saveActiveFirewallConfigID(id string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketMetadata).Put(keyActiveFirewallConfigID, []byte(id))
+	})
+}
+
+func (s *Store) deleteFirewallConfig(id string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketFirewallConfigs).Delete([]byte(id))
 	})
 }
 

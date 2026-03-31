@@ -45,6 +45,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/admin/login", s.handleAdminLogin)
 	s.mux.HandleFunc("POST /api/v1/enrollment-tokens", s.handleCreateEnrollmentToken)
 	s.mux.HandleFunc("POST /api/v1/firewall-config", s.handleUpdateFirewallConfig)
+	s.mux.HandleFunc("GET /api/v1/firewall-configs", s.handleListFirewallConfigs)
+	s.mux.HandleFunc("POST /api/v1/firewall-configs", s.handleCreateFirewallConfig)
+	s.mux.HandleFunc("GET /api/v1/firewall-configs/{id}", s.handleGetFirewallConfig)
+	s.mux.HandleFunc("PUT /api/v1/firewall-configs/{id}", s.handleUpdateFirewallConfigByID)
+	s.mux.HandleFunc("DELETE /api/v1/firewall-configs/{id}", s.handleDeleteFirewallConfig)
+	s.mux.HandleFunc("POST /api/v1/firewall-configs/{id}/apply", s.handleApplyFirewallConfig)
 	s.mux.HandleFunc("POST /api/v1/enroll", s.handleEnroll)
 	s.mux.HandleFunc("POST /api/v1/agents/self/heartbeat", s.handleHeartbeat)
 	s.mux.HandleFunc("GET /api/v1/agents/self/config", s.handleConfig)
@@ -145,6 +151,102 @@ func (s *Server) handleUpdateFirewallConfig(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleListFirewallConfigs(w http.ResponseWriter, r *http.Request) {
+	if err := s.authorizeAdminRequest(r); err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	resp, err := s.store.ListFirewallConfigs()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleCreateFirewallConfig(w http.ResponseWriter, r *http.Request) {
+	if err := s.authorizeAdminRequest(r); err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	var req types.CreateFirewallConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	resp, err := s.store.CreateFirewallConfig(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, resp)
+}
+
+func (s *Server) handleGetFirewallConfig(w http.ResponseWriter, r *http.Request) {
+	if err := s.authorizeAdminRequest(r); err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	resp, err := s.store.GetFirewallConfig(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleUpdateFirewallConfigByID(w http.ResponseWriter, r *http.Request) {
+	if err := s.authorizeAdminRequest(r); err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	var req types.UpdateFirewallConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	resp, err := s.store.UpdateFirewallConfigByID(r.PathValue("id"), req)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleDeleteFirewallConfig(w http.ResponseWriter, r *http.Request) {
+	if err := s.authorizeAdminRequest(r); err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	err := s.store.DeleteFirewallConfig(r.PathValue("id"))
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleApplyFirewallConfig(w http.ResponseWriter, r *http.Request) {
+	if err := s.authorizeAdminRequest(r); err != nil {
+		writeError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	resp, err := s.store.ApplyFirewallConfig(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 

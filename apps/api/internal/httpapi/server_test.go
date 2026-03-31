@@ -11,6 +11,7 @@ import (
 	"github.com/cloudfirewall/cloudfirewall/apps/api/internal/httpapi"
 	"github.com/cloudfirewall/cloudfirewall/apps/api/internal/service"
 	"github.com/cloudfirewall/cloudfirewall/apps/api/types"
+	"github.com/cloudfirewall/cloudfirewall/apps/engine/policybuilder"
 )
 
 func TestEnrollHeartbeatListAndConfig(t *testing.T) {
@@ -116,6 +117,12 @@ func TestSwaggerAndOpenAPIEndpoints(t *testing.T) {
 	if _, ok := paths["/api/v1/firewall-config"]; !ok {
 		t.Fatalf("firewall config path missing from spec")
 	}
+	if _, ok := paths["/api/v1/firewall-configs"]; !ok {
+		t.Fatalf("firewall configs path missing from spec")
+	}
+	if _, ok := paths["/api/v1/firewall-configs/{id}/apply"]; !ok {
+		t.Fatalf("firewall config apply path missing from spec")
+	}
 }
 
 func TestListAgentsAcceptsAPIKey(t *testing.T) {
@@ -166,6 +173,214 @@ func TestUpdateFirewallConfig(t *testing.T) {
 	configResp := doJSON[types.AgentConfigResponse](t, server, http.MethodGet, "/api/v1/agents/self/config", enrollResp.AuthToken, nil, http.StatusOK)
 	if configResp.Version != "cfg-2" {
 		t.Fatalf("unexpected config version after update: %s", configResp.Version)
+	}
+}
+
+func TestFirewallConfigCRUDAndApply(t *testing.T) {
+	store := newTestStore(t,
+		service.SecurityConfig{
+			AdminUsername: "admin",
+			AdminPassword: "secret",
+			APIKey:        "dev-api-key",
+		},
+		service.FirewallConfig{
+			ID:             "cfg-default",
+			Name:           "Default Firewall",
+			Version:        "cfg-1",
+			NFTablesConfig: "table inet cloudfirewall {}",
+			UpdatedAt:      time.Unix(1700000000, 0).UTC(),
+		},
+	)
+	server := httpapi.NewServer(store)
+
+	created := doJSON[types.CreateFirewallConfigResponse](t, server, http.MethodPost, "/api/v1/firewall-configs", "", types.CreateFirewallConfigRequest{
+		Name:           "Lockdown",
+		Version:        "cfg-lockdown",
+		NFTablesConfig: "table inet cloudfirewall { chain input { type filter hook input priority 0; policy drop; } }",
+	}, http.StatusCreated, withAPIKey())
+	if created.ID == "" {
+		t.Fatal("expected created firewall config id")
+	}
+
+	list := doJSON[types.ListFirewallConfigsResponse](t, server, http.MethodGet, "/api/v1/firewall-configs", "", nil, http.StatusOK, withAPIKey())
+	if len(list.Configs) != 2 {
+		t.Fatalf("expected 2 firewall configs, got %d", len(list.Configs))
+	}
+
+	updated := doJSON[types.UpdateFirewallConfigResponse](t, server, http.MethodPut, "/api/v1/firewall-configs/"+created.ID, "", types.UpdateFirewallConfigRequest{
+		Name:           "Lockdown Revised",
+		Version:        "cfg-lockdown-2",
+		NFTablesConfig: "table inet cloudfirewall { chain input { type filter hook input priority 0; policy drop; drop } }",
+	}, http.StatusOK, withAPIKey())
+	if updated.Version != "cfg-lockdown-2" {
+		t.Fatalf("unexpected updated firewall config version: %s", updated.Version)
+	}
+
+	applied := doJSON[types.ApplyFirewallConfigResponse](t, server, http.MethodPost, "/api/v1/firewall-configs/"+created.ID+"/apply", "", nil, http.StatusOK, withAPIKey())
+	if !applied.Config.IsActive {
+		t.Fatal("expected applied config to be active")
+	}
+
+	tokenResp := doJSON[types.CreateEnrollmentTokenResponse](t, server, http.MethodPost, "/api/v1/enrollment-tokens", "", nil, http.StatusCreated, withAPIKey())
+	enrollResp := doJSON[types.EnrollAgentResponse](t, server, http.MethodPost, "/api/v1/enroll", "", types.EnrollAgentRequest{
+		EnrollmentToken: tokenResp.Token,
+		AgentName:       "edge-01",
+		Hostname:        "edge-01.local",
+		AgentVersion:    "1.0.0",
+	}, http.StatusCreated)
+
+	configResp := doJSON[types.AgentConfigResponse](t, server, http.MethodGet, "/api/v1/agents/self/config", enrollResp.AuthToken, nil, http.StatusOK)
+	if configResp.Version != "cfg-lockdown-2" {
+		t.Fatalf("unexpected active config version after apply: %s", configResp.Version)
+	}
+}
+
+func TestFirewallConfigPolicyDraftCRUDAndApply(t *testing.T) {
+	store := newTestStore(t,
+		service.SecurityConfig{
+			AdminUsername: "admin",
+			AdminPassword: "secret",
+			APIKey:        "dev-api-key",
+		},
+		service.FirewallConfig{
+			ID:             "cfg-default",
+			Name:           "Default Firewall",
+			Version:        "cfg-1",
+			NFTablesConfig: "table inet cloudfirewall {}",
+			UpdatedAt:      time.Unix(1700000000, 0).UTC(),
+		},
+	)
+	server := httpapi.NewServer(store)
+
+	created := doJSON[types.CreateFirewallConfigResponse](t, server, http.MethodPost, "/api/v1/firewall-configs", "", types.CreateFirewallConfigRequest{
+		Name: "Public Web Server",
+		Policy: &policybuilder.PolicyDraft{
+			Name:                  "Public Web Server",
+			Description:           "Allow HTTPS from the internet",
+			DefaultInboundAction:  "DENY",
+			DefaultOutboundAction: "ALLOW",
+			AllowLoopback:         true,
+			AllowEstablished:      true,
+			Rules: []policybuilder.RuleDraft{
+				{
+					ID:         "allow-https",
+					Direction:  "INBOUND",
+					Action:     "ALLOW",
+					PeerType:   policybuilder.PeerTypePublicInternet,
+					Protocol:   "TCP",
+					Ports:      []int{443},
+					Enabled:    true,
+					OrderIndex: 10,
+				},
+			},
+		},
+	}, http.StatusCreated, withAPIKey())
+	if created.ID == "" {
+		t.Fatal("expected created firewall config id")
+	}
+	if created.Policy == nil {
+		t.Fatal("expected created config to retain policy draft")
+	}
+	if created.NFTablesConfig == "" {
+		t.Fatal("expected created config to include compiled nftables config")
+	}
+	if created.Version == "" {
+		t.Fatal("expected created config to include compiled version")
+	}
+
+	applied := doJSON[types.ApplyFirewallConfigResponse](t, server, http.MethodPost, "/api/v1/firewall-configs/"+created.ID+"/apply", "", nil, http.StatusOK, withAPIKey())
+	if !applied.Config.IsActive {
+		t.Fatal("expected applied config to be active")
+	}
+	if applied.Config.Policy == nil || len(applied.Config.Policy.Rules) != 1 {
+		t.Fatal("expected applied config policy to be returned")
+	}
+
+	tokenResp := doJSON[types.CreateEnrollmentTokenResponse](t, server, http.MethodPost, "/api/v1/enrollment-tokens", "", nil, http.StatusCreated, withAPIKey())
+	enrollResp := doJSON[types.EnrollAgentResponse](t, server, http.MethodPost, "/api/v1/enroll", "", types.EnrollAgentRequest{
+		EnrollmentToken: tokenResp.Token,
+		AgentName:       "edge-01",
+		Hostname:        "edge-01.local",
+		AgentVersion:    "1.0.0",
+	}, http.StatusCreated)
+
+	configResp := doJSON[types.AgentConfigResponse](t, server, http.MethodGet, "/api/v1/agents/self/config", enrollResp.AuthToken, nil, http.StatusOK)
+	if configResp.Version != created.Version {
+		t.Fatalf("unexpected active config version after policy apply: %s", configResp.Version)
+	}
+	if configResp.NFTablesConfig == "" {
+		t.Fatal("expected compiled nftables config for agent delivery")
+	}
+}
+
+func TestCreateFirewallConfigAcceptsFrontendPolicyPayload(t *testing.T) {
+	store := newTestStore(t,
+		service.SecurityConfig{
+			AdminUsername: "admin",
+			AdminPassword: "secret",
+			APIKey:        "dev-api-key",
+		},
+		service.FirewallConfig{
+			ID:             "cfg-default",
+			Name:           "Default Firewall",
+			Version:        "cfg-1",
+			NFTablesConfig: "table inet cloudfirewall {}",
+			UpdatedAt:      time.Unix(1700000000, 0).UTC(),
+		},
+	)
+	server := httpapi.NewServer(store)
+
+	body := []byte(`{
+		"name":"UI Created Policy",
+		"version":"",
+		"nftablesConfig":"",
+		"policy":{
+			"name":"UI Created Policy",
+			"description":"Allow HTTPS from internet",
+			"defaultInboundAction":"DENY",
+			"defaultOutboundAction":"ALLOW",
+			"allowLoopback":true,
+			"allowEstablishedRelated":true,
+			"rules":[
+				{
+					"id":"rule-1",
+					"direction":"INBOUND",
+					"action":"ALLOW",
+					"peerType":"PUBLIC_INTERNET",
+					"protocol":"TCP",
+					"ports":[443],
+					"logEnabled":false,
+					"enabled":true,
+					"orderIndex":10,
+					"description":"Allow HTTPS"
+				}
+			]
+		}
+	}`)
+
+	req, err := http.NewRequest(http.MethodPost, "/api/v1/firewall-configs", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "dev-api-key")
+
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("unexpected status %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var created types.CreateFirewallConfigResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Policy == nil {
+		t.Fatal("expected policy to round-trip")
+	}
+	if created.NFTablesConfig == "" {
+		t.Fatal("expected compiled nftables config")
 	}
 }
 
